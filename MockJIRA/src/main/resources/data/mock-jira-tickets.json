@@ -1,0 +1,117 @@
+{
+  "PROJ-552": {
+    "id": "10231",
+    "key": "PROJ-552",
+    "self": "http://localhost:8080/rest/api/3/issue/10231",
+    "fields": {
+      "summary": "Update user profile page with new design",
+      "issuetype": {
+        "id": "10001",
+        "name": "Story",
+        "iconUrl": "http://localhost:8080/icon/story.svg"
+      },
+      "project": {
+        "id": "10000",
+        "key": "PROJ",
+        "name": "Project Phoenix"
+      },
+      "status": {
+        "name": "In Progress",
+        "id": "3"
+      },
+      "priority": {
+        "name": "Medium",
+        "id": "3"
+      },
+      "assignee": {
+        "displayName": "Alice Johnson",
+        "emailAddress": "alice@example.com"
+      },
+      "reporter": {
+        "displayName": "Bob Williams",
+        "emailAddress": "bob@example.com"
+      },
+      "description": {
+        "type": "doc",
+        "version": 1,
+        "content": [{
+          "type": "paragraph",
+          "content": [{
+            "type": "text",
+            "text": "Please implement the new design as per the attachments."
+          }]
+        }]
+      },
+      "created": "2025-09-29T12:00:00.000+0530",
+      "updated": "2025-09-29T12:15:00.000+0530",
+      "attachment": [{
+        "id": "10012",
+        "self": "http://localhost:8080/secure/attachment/10012",
+        "filename": "UI_mockup.png",
+        "author": { "displayName": "Bob Williams" },
+        "created": "2025-09-29T12:01:00.000+0530",
+        "size": 245760,
+        "mimeType": "image/png",
+        "content": "http://localhost:8080/secure/attachment/10012/UI_mockup.png",
+        "thumbnail": "http://localhost:8080/secure/thumbnail/10012/UI_mockup.png"
+      },
+        {
+          "id": "10013",
+          "self": "http://localhost:8080/secure/attachment/10013",
+          "filename": "detailed_requirements.pdf",
+          "author": { "displayName": "Bob Williams" },
+          "created": "2025-09-29T12:02:00.000+0530",
+          "size": 819200,
+          "mimeType": "application/pdf",
+          "content": "http://localhost:8080/secure/attachment/10013/detailed_requirements.pdf"
+        }
+      ]
+    }
+  },
+  "PROJ-101": {
+    "id": "10115",
+    "key": "PROJ-101",
+    "self": "http://localhost:8080/rest/api/3/issue/10115",
+    "fields": {
+      "summary": "Fix login button alignment on mobile",
+      "issuetype": {
+        "id": "10004",
+        "name": "Bug",
+        "iconUrl": "http://localhost:8080/icon/bug.svg"
+      },
+      "project": {
+        "id": "10000",
+        "key": "PROJ",
+        "name": "Project Phoenix"
+      },
+      "status": {
+        "name": "To Do",
+        "id": "1"
+      },
+      "priority": {
+        "name": "High",
+        "id": "1"
+      },
+      "assignee": null,
+      "reporter": {
+        "displayName": "Charlie Brown",
+        "emailAddress": "charlie@example.com"
+      },
+      "description": {
+        "type": "doc",
+        "version": 1,
+        "content": [{
+          "type": "paragraph",
+          "content": [{
+            "type": "text",
+            "text": "The main login button is off-center on small screens."
+          }]
+        }]
+      },
+      "created": "2025-09-28T10:00:00.000+0530",
+      "updated": "2025-09-28T10:00:00.000+0530",
+      "attachment": []
+    }
+  }
+}
+
