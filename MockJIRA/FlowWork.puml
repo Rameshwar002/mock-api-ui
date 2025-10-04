@@ -1,0 +1,34 @@
+@startuml
+box
+actor User
+box end
+box
+participant "data handler" as dh
+participant "Jira" as j
+database "vector DB" as VDB
+participant "Service B" as B
+participant "Service C" as C
+box end
+
+
+User -> j : Send ID
+note over j,dh
+collect and extract the
+required data
+(Description)
+end note
+j -> dh : Response
+
+dh -> VDB : Query
+note over dh,VDB
+create the Query for identify
+the issue by keywords
+end note
+VDB -> dh: Answer
+note over VDB,dh 
+return the issue type
+end note
+
+
+
+@enduml
