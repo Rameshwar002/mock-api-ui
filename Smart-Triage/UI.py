@@ -1,27 +1,29 @@
+# streamlit_app.py
+# Run using: streamlit run streamlit_app.py
+
 import time
 import streamlit as st
 from jira_client import get_ticket_details
+from vector_query import query_vector_db
 
 st.set_page_config(page_title="Smart STRO", layout="wide")
-st.title("⚡ Smart Workflow")
+st.title("⚡ Smart STRO Workflow")
 
-# --- Input Section ---
 uid = st.text_input("Enter Ticket ID", placeholder="Enter Jira Ticket ID")
 
 if st.button("Start Workflow"):
     if not uid:
         st.error("⚠️ Please enter a Ticket ID before starting workflow")
     else:
-        # Progress bar + status
         progress_text = st.empty()
         progress_bar = st.progress(0)
         status_box = st.container()
 
         steps = [
             "Step 1: Collect ticket from Jira",
-            "Step 2: Identifying the Issue and collecting logs",
-            "Step 3: Validating with documents",
-            "Step 4: Generating output"
+            "Step 2: Identifying the Issue and collecting related info from Vector DB",
+            "Step 3: Validating with documents (mock)",
+            "Step 4: Generating output (mock)"
         ]
 
         jira_description = None
@@ -31,44 +33,60 @@ if st.button("Start Workflow"):
             with status_box:
                 st.write(f"🔄 {step} ...")
 
-            # Step 1 → Jira API call
+            # Step 1 → Fetch from Jira
             if i == 0:
                 result = get_ticket_details(uid)
                 if "error" in result:
                     st.error(f"❌ Jira fetch failed: {result['error']}")
                     break
                 jira_description = result.get("description", "No description found")
-                print(f"📌 Jira Ticket Description: {jira_description}")
+                st.info(f"📋 Jira Description: {jira_description}")
 
-            # Step 2 → Simulate DB Logs fetch
+            # Step 2 → Vector DB retrieval
             elif i == 1:
-                time.sleep(2)
+                st.info("🔍 Searching Vector DB for relevant information ...")
 
-            # Step 3 → Simulate KB/VectorDB validation
+                query_result = query_vector_db(jira_description)
+                print(query_result)
+                if "error" in query_result:
+                    st.error(f"❌ Vector DB error: {query_result['error']}")
+                    break
+
+                matches = query_result.get("matches", [])
+                if not matches:
+                    st.warning("⚠️ No matching documents found.")
+                else:
+                    st.success("✅ Retrieved relevant documents:")
+                    for m in matches:
+                        st.markdown(f"""
+                        **Match (Score: {m['score']})**
+                        ```
+                        {m['document']}
+                        ```
+                        """)
+
+            # Step 3 → Mock validation
             elif i == 2:
-                time.sleep(2)
+                time.sleep(1)
 
-            # Step 4 → Simulate LLM response generation
+            # Step 4 → Mock result
             elif i == 3:
-                time.sleep(2)
+                time.sleep(1)
 
-            # Mark step completed
             with status_box:
                 st.success(f"✅ {step} completed")
             progress_bar.progress((i + 1) / len(steps))
 
         else:
-            progress_text.text("🤝 All steps completed successfully!")
+            progress_text.text("🎉 All steps completed successfully!")
 
-            # --- Final LLM Chat Response ---
             st.markdown("---")
-            st.subheader("🤖 Final Response")
+            st.subheader("🧠 Workflow Summary")
 
             with st.chat_message("assistant"):
                 st.markdown(f"""
-                Based on the Ticket ID **{uid}**, the workflow has been completed ✅  
-                - 📌 **Jira Description:** {jira_description}  
-                - 🗂️ Logs collected and analyzed  
-                - 📚 Documents validated  
-                - 🤖 Final resolution drafted  
+                Based on Ticket **{uid}**,  
+                - 📄 Jira Description: *{jira_description}*  
+                - 🔍 Retrieved related documents from Vector DB  
+                - ✅ Workflow completed successfully
                 """)

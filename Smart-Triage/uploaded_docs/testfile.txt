@@ -1,0 +1,37 @@
+from moviepy import VideoFileClip
+import whisper
+import gradio as gr
+import os
+
+
+whisper_model = whisper.load_model("small")
+
+def video_to_text(video_file):
+    if isinstance(video_file, dict) and "name" in video_file:
+        video_file = video_file["name"]
+
+    
+    video = VideoFileClip(video_file)
+    audio_path = "temp_audio.wav"
+    video.audio.write_audiofile(audio_path, fps=16000, logger=None)
+
+    
+    result = whisper_model.transcribe(audio_path)
+    transcript = result["text"]
+
+
+    if os.path.exists(audio_path):
+        os.remove(audio_path)
+
+    return transcript
+
+demo = gr.Interface(
+    fn=video_to_text,
+    inputs=gr.Video(label="🎥 Upload Video"),
+    outputs="text",
+    title="🎬 Video to Text (Whisper)",
+    description="Upload video → Extract audio → Transcribe with Whisper → ✅ (pip-only, no system ffmpeg needed)"
+)
+
+if _name_ == "_main_":
+    demo.launch()

@@ -1,22 +1,20 @@
-# install required packages:
-# pip install streamlit chromadb sentence-transformers python-docx pypdf ollama
+# rag_ui.py
+# Run using: streamlit run rag_ui.py
 
 import os
+import streamlit as st
 import chromadb
+from sentence_transformers import SentenceTransformer
 import docx
 from PyPDF2 import PdfReader
-from sentence_transformers import SentenceTransformer
-import streamlit as st
-import ollama  # LLM for answering questions
 
 # ========= CONFIG =========
 UPLOAD_DIR = "uploaded_docs"
+DB_DIR = "chroma_data"   # persistent directory for Chroma
 COLLECTION_NAME = "my_documents"
 EMBED_MODEL = "all-MiniLM-L6-v2"
-LLM_MODEL = "llama3.2"   # Ollama LLM
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
-TOP_K = 3
 # ==========================
 
 # ---- Loaders ----
@@ -46,19 +44,13 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
             chunks.append(chunk)
     return chunks
 
-# ---- Embedding ----
+# ---- Setup Embedding + DB ----
 embedder = SentenceTransformer(EMBED_MODEL)
-
-def get_embedding(text):
-    return embedder.encode(text).tolist()
-
-# ---- Setup ChromaDB ----
-chroma_client = chromadb.Client()
-collection = chroma_client.get_or_create_collection(name=COLLECTION_NAME)
+client = chromadb.PersistentClient(path=DB_DIR)
+collection = client.get_or_create_collection(name=COLLECTION_NAME)
 
 # ---- Streamlit UI ----
-st.title("📚 Document Search + LLM Answering")
-
+st.title("📚 RAG Document Uploader")
 uploaded_files = st.file_uploader(
     "Upload PDF, TXT, or DOCX files",
     type=["pdf", "txt", "docx"],
@@ -74,21 +66,20 @@ if uploaded_files:
             f.write(file.getbuffer())
         st.success(f"✅ Saved {file.name}")
 
-        # Read text
         ext = os.path.splitext(file.name)[1].lower()
         if ext == ".pdf":
-            raw_text = load_pdf(save_path)
+            text = load_pdf(save_path)
         elif ext == ".txt":
-            raw_text = load_txt(save_path)
+            text = load_txt(save_path)
         elif ext == ".docx":
-            raw_text = load_docx(save_path)
+            text = load_docx(save_path)
         else:
             st.warning(f"⚠️ Unsupported file: {file.name}")
             continue
 
-        chunks = chunk_text(raw_text)
+        chunks = chunk_text(text)
         for i, chunk in enumerate(chunks):
-            emb = get_embedding(chunk)
+            emb = embedder.encode(chunk).tolist()
             collection.add(
                 documents=[chunk],
                 embeddings=[emb],
@@ -98,36 +89,4 @@ if uploaded_files:
         st.info(f"📄 Processed {file.name} → {len(chunks)} chunks")
 
 st.markdown("---")
-
-# ---- Query + LLM Section ----
-query = st.text_input("🔍 Enter your question")
-
-if query:
-    # 1️⃣ Retrieve top-k chunks
-    q_emb = get_embedding(query)
-    results = collection.query(query_embeddings=[q_emb], n_results=TOP_K)
-    retrieved_docs = results["documents"][0]
-    retrieved_meta = results["metadatas"][0]
-
-    context = "\n\n".join(retrieved_docs)
-
-    # 2️⃣ Build prompt for LLM
-    prompt = f"""You are a helpful assistant. 
-Answer the question using only the following context:
-
-{context}
-
-Question: {query}
-Answer:"""
-
-    # 3️⃣ Ask Ollama LLM
-    response = ollama.chat(model=LLM_MODEL, messages=[{"role": "user", "content": prompt}])
-    answer = response["message"]["content"]
-
-    # 4️⃣ Display
-    st.subheader("💡 Answer from LLM")
-    st.write(answer)
-
-    st.subheader("📚 Sources (Top Chunks)")
-    for doc, meta in zip(retrieved_docs, retrieved_meta):
-        st.write(f"- {meta['filename']} (chunk {meta['chunk_id']}) → {doc[:300]}...")
+st.success("✅ Documents added successfully! Now you can close this and run the main UI.")
