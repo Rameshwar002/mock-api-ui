@@ -1,0 +1,59 @@
+@startuml
+title Smart Flow - Continuous LLM Interaction
+
+actor User
+
+box "Smart Flow System" #LightBlue
+    participant "Data Handler" as dh
+    participant "Jira API" as j
+    database "VectorDB" as db
+    database "Logs DB" as data
+    participant "LLM" as llm
+end box
+
+' === Sequence Flow ===
+
+User -> dh: Send Ticket ID
+dh -> j: Request ticket details (via Jira API)
+j --> dh: Return JSON (Ticket details for given ID)
+
+' --- Step 1: Detect Ticket Type ---
+dh -> db: Query -> Analyze question + description to detect type
+db --> dh: Return ticket type (e.g., "ABC" / "XYZ")
+
+dh -> llm: Format ticket type info\n(Generate structured explanation)
+llm --> dh: Return structured summary
+
+' --- Step 2: Request Steps / Log Query ---
+dh -> db: Query -> Get steps or log query for this type
+db --> dh: Return log query (keywords for log search)
+
+dh -> llm: Format log query info\n(Explain which keywords are used and why)
+llm --> dh: Return structured explanation
+
+' --- Step 3: Get Logs ---
+dh -> data: Request logs\n(Query by Ticket ID, timestamp, keywords)
+data --> dh: Return logs
+
+dh -> llm: Summarize log insights\n(Create human-readable description)
+llm --> dh: Return summary
+
+' --- Step 4: Validate Points ---
+dh -> db: Request validation points
+db --> dh: Return validation list\n(e.g., A=3 but logs show A=5)
+
+dh -> llm: Structure validation info\n(Highlight mismatched values)
+llm --> dh: Return structured validation summary
+
+' --- Step 5: Determine Action ---
+dh -> db: Extract issue from logs and query for action
+db --> dh: Return action taken
+
+dh -> llm: Format action explanation\n(Create clear final summary)
+llm --> dh: Return structured action summary
+
+' --- Final User Response ---
+dh -> llm: Generate complete structured answer
+llm --> User: Respond with final well-structured explanation
+
+@enduml
