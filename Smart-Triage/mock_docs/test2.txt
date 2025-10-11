@@ -1,0 +1,18 @@
+XYZ System manages the vehicle's cooling and thermal regulation.
+
+Common problems:
+1. Vehicle overheating during charging.
+2. Cooling fan not spinning.
+3. Error code T200 indicates coolant pump failure.
+4. Air conditioner not responding after long drives.
+
+Possible Causes:
+- Coolant level low or blocked pump.
+- Cooling fan controller issue.
+- Sensor wire disconnected.
+
+Recommended Actions:
+- Inspect coolant levels and pump status.
+- Clean air vents.
+- Replace cooling sensor if error persists.
+- Run self-diagnostic from maintenance panel.

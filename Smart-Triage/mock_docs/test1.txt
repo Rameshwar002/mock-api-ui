@@ -1,0 +1,18 @@
+ABC System handles vehicle charging and power distribution.
+
+Common problems:
+1. Vehicle not charging properly due to faulty power connector.
+2. Charger connected but charging does not start.
+3. Power fluctuation when engine starts.
+4. Error code E105 indicates inverter malfunction.
+
+Possible Causes:
+- Faulty charging cable or port.
+- Inverter relay connection loose.
+- Battery control module firmware outdated.
+
+Recommended Actions:
+- Inspect the charging connector and cable integrity.
+- Restart power distribution module.
+- Check inverter connection status.
+- Perform firmware update for ABC module if available.
