@@ -1,0 +1,112 @@
+
+Connected Car Platform – Complete Use Case Documentation (Detailed)
+Document Type: Enterprise Design & API Specification (.doc)
+Domain: Connected Vehicle Services
+Standards: Automotive / Indra-aligned Enterprise Standards
+Audience: Backend Engineers, Mobile Teams, Data Engineers, Architects
+Purpose: Single, end-to-end document containing ALL use cases, APIs, modules, LLDs (with notes), error flows, and retry logic. Designed for real working vehicles and VectorDB / RAG ingestion.
+________________________________________
+📌 1. System Overview
+The Connected Vehicle Platform (CVP) enables secure, reliable, and traceable communication between: - Mobile Applications (Driver / Fleet / OEM apps) - Backend Systems (Microservices & Analytics) - Vehicles (ECU / TCU)
+Architectural Principles
+•	REST + Event-driven architecture
+•	OAuth2 / JWT security
+•	At-least-once message delivery
+•	Idempotent APIs
+•	Automotive-grade fault tolerance
+•	End-to-end observability (Correlation ID)
+________________________________________
+✅ USE CASE 1: Vehicle Telemetry & Health Monitoring
+1.1 Business Description
+Vehicles continuously send telemetry data (speed, RPM, temperature, fault codes) to the backend. This data is used for: - Real-time dashboards - Health monitoring - Alert generation - Predictive analytics
+________________________________________
+1.2 End-to-End Flow
+Vehicle ECU → TCU → API Gateway → Telemetry Service → Event Bus → Data Lake / Alert Service / Dashboard
+________________________________________
+1.3 Modules Involved
+•	Vehicle ECU
+•	Telematics Control Unit (TCU)
+•	API Gateway
+•	Telemetry Ingestion Service
+•	Validation Service
+•	Event Bus (Kafka / Pulsar)
+•	Retry Queue / Dead Letter Queue
+•	Alert Service
+•	Data Lake
+•	Monitoring Dashboard
+________________________________________
+1.4 APIs – Vehicle Telemetry
+API 1: Vehicle Authentication
+Endpoint: POST /api/v1/vehicle/auth
+{ "vehicleId": "VIN-IND-239084", "certificate": "base64-cert" }
+________________________________________
+API 2: Ingest Telemetry Data
+Endpoint: POST /api/v1/telemetry
+{
+  "vehicleId": "VIN-IND-239084",
+  "timestamp": "2026-01-02T10:15:30Z",
+  "telemetry": {
+    "speed": 72,
+    "engineRpm": 3200,
+    "fuelLevel": 64,
+    "engineTemperature": 92
+  },
+  "faultCodes": ["P0130"]
+}
+________________________________________
+API 3: Fetch Vehicle Health
+Endpoint: GET /api/v1/vehicles/{vehicleId}/health
+{ "healthStatus": "NORMAL", "activeFaults": [] }
+________________________________________
+✅ USE CASE 2: Remote Vehicle Command Execution
+2.1 Business Description
+Users remotely control vehicle functions (lock/unlock, engine start, climate control) from a mobile app with secure authorization and guaranteed delivery.
+________________________________________
+2.2 End-to-End Flow
+Mobile App → IAM → API Gateway → Command Service → Message Broker → TCU → ACK → Mobile App
+________________________________________
+2.3 Modules Involved
+•	Mobile Application
+•	Identity & Access Management (IAM)
+•	API Gateway
+•	Command Management Service
+•	Message Broker (MQTT / Kafka)
+•	Retry Queue
+•	Telematics Control Unit (TCU)
+•	Audit & Logging Service
+________________________________________
+2.4 APIs – Remote Command
+API 1: User Login
+POST /api/v1/auth/login
+API 2: Initiate Command
+POST /api/v1/vehicles/{vehicleId}/commands
+API 3: Dispatch Command (Internal Event)
+API 4: Vehicle Acknowledgement
+POST /api/v1/vehicles/{vehicleId}/commands/ack
+API 5: Fetch Command Status
+GET /api/v1/commands/{commandId}/status
+________________________________________
+✅ USE CASE 3: Predictive Maintenance & Alerts
+3.1 Business Description
+The system predicts component failures using telemetry data and proactively notifies drivers and service centers.
+________________________________________
+3.2 End-to-End Flow
+Telemetry Stream → Analytics Engine → ML Model → Alert Service → Mobile App / Service Center
+________________________________________
+3.3 Modules Involved
+•	Telemetry Stream Processor
+•	Analytics Engine
+•	ML Prediction Model
+•	Alert Management Service
+•	Notification Service
+•	Retry Queue
+•	Service Center Integration
+________________________________________
+3.4 APIs – Predictive Maintenance
+API 1: Generate Predictive Alert
+POST /api/v1/alerts/predictive
+API 2: Fetch Maintenance Alerts
+GET /api/v1/vehicles/{vehicleId}/maintenance-alerts
+API 3: Notify Service Center
+POST /api/v1/service-center/notify
+
