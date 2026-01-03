@@ -1,0 +1,150 @@
+(* 1.5 LLD – Telemetry (Normal + Error + Retry) *)
+
+@startuml
+actor ECU
+actor TCU
+participant "API Gateway" as GW
+participant "Telemetry Service" as TS
+participant "Validation Service" as VS
+participant "Event Bus" as EB
+participant "Retry Queue" as RQ
+participant "Alert Service" as AS
+participant "Data Lake" as DL
+
+ECU -> TCU : CAN signals
+TCU -> GW : POST telemetry
+GW -> TS : forward request
+TS -> VS : validate payload
+
+alt Validation Failed
+VS --> TS : error
+TS -> GW : 422
+GW -> TCU : reject
+else Validation Success
+VS --> TS : OK
+TS -> EB : publish event
+
+alt Event Bus Down
+EB --> TS : failure
+TS -> RQ : enqueue retry
+RQ -> TS : retry (max 3)
+else Publish Success
+EB -> DL : persist
+EB -> AS : evaluate rules
+end
+end
+
+note right of TS
+- Idempotency using eventId
+- Correlation ID propagation
+- Backpressure handling
+end note
+
+note right of RQ
+- Exponential backoff
+- Dead-letter after max retries
+end note
+
+note right of EB
+- At-least-once delivery
+- Partitioned by vehicleId
+end note
+@enduml
+
+
+
+2.5 LLD – Remote Command (Normal + Error + Retry)
+@startuml
+actor MobileApp
+participant IAM
+participant "API Gateway" as GW
+participant "Command Service" as CS
+participant "Message Broker" as MB
+participant "Retry Queue" as RQ
+participant TCU
+
+MobileApp -> IAM : authenticate
+IAM --> MobileApp : JWT
+MobileApp -> GW : send command
+GW -> CS : validate
+
+alt Unauthorized
+CS --> GW : 401
+GW --> MobileApp : error
+else Authorized
+CS -> MB : publish
+
+alt Vehicle Offline
+MB --> CS : no ACK
+CS -> RQ : retry (TTL 60s)
+else Vehicle Online
+MB -> TCU : execute
+TCU -> MB : ACK/NACK
+MB -> CS : status
+CS -> GW : response
+GW -> MobileApp : notify
+end
+end
+
+note right of CS
+- Authorization
+- Command TTL
+- Audit logging
+end note
+
+note right of RQ
+- Time-bound retries
+- Prevent infinite retry
+end note
+
+note right of TCU
+- Executes physical action
+- Sends ACK / NACK
+end note
+@enduml
+
+
+3.5 LLD – Predictive Maintenance (Error + Retry)
+@startuml
+participant "Telemetry Stream" as TS
+participant "Analytics Engine" as AE
+participant "ML Model" as ML
+participant "Alert Service" as AS
+participant "Notification Service" as NS
+participant "Retry Queue" as RQ
+participant "Service Center" as SC
+
+TS -> AE : consume
+AE -> ML : predict
+
+alt Model Failure
+ML --> AE : exception
+AE -> RQ : retry (max 3)
+else Success
+ML --> AE : risk score
+AE -> AS : create alert
+
+alt Notification Failure
+AS -> NS : notify
+NS --> AS : failed
+AS -> RQ : retry
+else Success
+NS -> SC : inform
+end
+end
+
+note right of AE
+- Feature extraction
+- Windowed aggregation
+end note
+
+note right of ML
+- Versioned models
+- Confidence threshold
+end note
+
+note right of AS
+- Alert deduplication
+- Severity classification
+end note
+@enduml
