@@ -16,6 +16,12 @@ def save_db(index, metadata):
     faiss.write_index(index, INDEX_PATH)
     with open(META_PATH, "wb") as f:
         pickle.dump(metadata, f)
+        
+def get_indexed_file_count():
+    _, metadata = load_db()
+    if not metadata:
+        return 0
+    return len(set(m["document"] for m in metadata))
 
 def load_db():
     if not os.path.exists(INDEX_PATH):
