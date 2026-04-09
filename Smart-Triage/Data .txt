@@ -1,39 +1,168 @@
-Good — that means your app is working now ✅
-Issue now is just UI structure (layout + styling) — not logic.
-
-Let’s fix your UI to match your original design 🔥
+Perfect — here is your clean, enterprise-level React UI structure + all core files (ready to run, no confusion) 🔥
 
 
 ---
 
-🎯 Goal
+📁 FINAL PROJECT STRUCTURE
 
-Restore proper layout:
-
-| Dashboard (Left - 70%) | Control Panel (Right - 30%) |
+automation-ui/
+│
+├── public/
+│
+├── src/
+│   ├── components/
+│   │   ├── Dashboard.jsx
+│   │   ├── Stats.jsx
+│   │   ├── Execution.jsx
+│   │   ├── Logs.jsx
+│   │   └── AssistantPanel.jsx
+│   │
+│   ├── hooks/
+│   │   └── useWebSocket.js
+│   │
+│   ├── styles/
+│   │   └── theme.css
+│   │
+│   ├── App.jsx
+│   ├── main.jsx
+│   └── index.css
+│
+├── index.html
+├── package.json
+├── tailwind.config.js
+├── postcss.config.js
+└── README.md
 
 
 ---
 
-🚀 FIX 1 — Correct Main Layout (IMPORTANT)
+📦 1. package.json
 
-👉 Update your App.jsx
+{
+  "name": "automation-ui",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite"
+  },
+  "dependencies": {
+    "react": "^18",
+    "react-dom": "^18",
+    "sockjs-client": "^1.6.1",
+    "@stomp/stompjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "vite": "^5",
+    "tailwindcss": "^3",
+    "postcss": "^8",
+    "autoprefixer": "^10"
+  }
+}
 
+
+---
+
+⚙️ 2. Config Files
+
+tailwind.config.js
+
+export default {
+  content: ["./index.html", "./src/**/*.{js,jsx}"],
+  theme: { extend: {} },
+  plugins: [],
+}
+
+postcss.config.js
+
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+
+
+---
+
+🎨 3. Global Styling
+
+src/styles/theme.css
+
+:root {
+  --bg: #020617;
+  --card: rgba(30, 41, 59, 0.6);
+  --border: rgba(255,255,255,0.08);
+}
+
+body {
+  background: radial-gradient(circle at top, #1e293b, #020617);
+  color: white;
+}
+
+.glass {
+  background: var(--card);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 20px;
+}
+
+.green { background: linear-gradient(135deg,#16a34a,#22c55e); }
+.red { background: linear-gradient(135deg,#dc2626,#ef4444); }
+.yellow { background: linear-gradient(135deg,#f59e0b,#fbbf24); }
+.blue { background: linear-gradient(135deg,#2563eb,#3b82f6); }
+
+
+---
+
+🚀 4. Entry Files
+
+src/main.jsx
+
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import "./index.css";
+import "./styles/theme.css";
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+
+---
+
+src/index.css
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+---
+
+🧠 5. App.jsx (STATE CONTROL)
+
+import { useState } from "react";
 import Dashboard from "./components/Dashboard";
 import AssistantPanel from "./components/AssistantPanel";
 
 export default function App() {
+
+  const [stats, setStats] = useState({
+    total: 0,
+    passed: 0,
+    failed: 0,
+    skipped: 0
+  });
+
   return (
-    <div className="flex h-screen bg-slate-900 text-white">
-      
-      {/* LEFT */}
+    <div className="flex h-screen">
+
       <div className="flex-1 overflow-auto">
-        <Dashboard />
+        <Dashboard stats={stats} />
       </div>
 
-      {/* RIGHT */}
-      <div className="w-80 border-l border-gray-700">
-        <AssistantPanel />
+      <div className="w-80 border-l border-gray-800">
+        <AssistantPanel setStats={setStats} />
       </div>
 
     </div>
@@ -43,45 +172,161 @@ export default function App() {
 
 ---
 
-🚀 FIX 2 — Proper Dashboard Structure
-
-👉 Update Dashboard.jsx
+📊 6. Dashboard.jsx
 
 import Stats from "./Stats";
 import Execution from "./Execution";
 import Logs from "./Logs";
 
-export default function Dashboard() {
+export default function Dashboard({ stats }) {
   return (
     <div className="p-6 space-y-6">
 
-      {/* HEADER */}
       <div>
-        <h1 className="text-xs opacity-50 uppercase">
-          Automation Framework
-        </h1>
-        <h2 className="text-2xl font-bold">DASHBOARD</h2>
+        <h1 className="text-xs opacity-50">AUTOMATION FRAMEWORK</h1>
+        <h2 className="text-4xl font-bold">DASHBOARD</h2>
       </div>
 
-      {/* STATS */}
-      <Stats />
+      <Stats stats={stats} />
 
-      {/* MAIN GRID */}
       <div className="grid grid-cols-3 gap-6">
 
-        {/* LEFT SIDE */}
         <div className="col-span-2 space-y-6">
           <Execution />
 
-          <div className="bg-slate-800 rounded-xl p-4 h-64">
-            Report Viewer
+          <div className="glass h-64">
+            INTERACTIVE REPORT VIEW
           </div>
         </div>
 
-        {/* RIGHT SIDE */}
-        <div className="space-y-6">
-          <Logs />
-        </div>
+        <Logs />
+
+      </div>
+    </div>
+  );
+}
+
+
+---
+
+📦 7. Stats.jsx
+
+export default function Stats({ stats }) {
+  return (
+    <div className="grid grid-cols-4 gap-5">
+
+      <div className="glass">
+        <p>Total Runs</p>
+        <h2 className="text-4xl">{stats.total}</h2>
+      </div>
+
+      <div className="green p-5 rounded-xl">
+        <p>Passed</p>
+        <h2 className="text-4xl">{stats.passed}</h2>
+      </div>
+
+      <div className="red p-5 rounded-xl">
+        <p>Failed</p>
+        <h2 className="text-4xl">{stats.failed}</h2>
+      </div>
+
+      <div className="yellow p-5 rounded-xl">
+        <p>Skipped</p>
+        <h2 className="text-4xl">{stats.skipped}</h2>
+      </div>
+
+    </div>
+  );
+}
+
+
+---
+
+⚡ 8. Execution.jsx
+
+export default function Execution() {
+  return (
+    <div className="glass space-y-4">
+
+      <div className="flex justify-between">
+        <h4>CURRENT EXECUTION</h4>
+        <span className="bg-green-600 px-2 rounded text-xs">
+          RUNNING
+        </span>
+      </div>
+
+      <div className="w-full bg-gray-700 h-3 rounded">
+        <div className="bg-green-400 h-3 w-2/3 rounded"></div>
+      </div>
+
+      <p className="text-xs">RUNNING ROBOT SCRIPT...</p>
+
+    </div>
+  );
+}
+
+
+---
+
+🖥️ 9. Logs.jsx (LIVE READY)
+
+import { useState } from "react";
+
+export default function Logs() {
+
+  const [logs] = useState([
+    "Framework Initialized...",
+    "Running test...",
+    "Success"
+  ]);
+
+  return (
+    <div className="glass h-80 overflow-auto font-mono text-xs">
+      {logs.map((l, i) => (
+        <p key={i}>{"> " + l}</p>
+      ))}
+    </div>
+  );
+}
+
+
+---
+
+🤖 10. AssistantPanel.jsx
+
+export default function AssistantPanel({ setStats }) {
+
+  const runTest = () => {
+    setStats({
+      total: 4,
+      passed: 3,
+      failed: 1,
+      skipped: 0
+    });
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+
+      <h3 className="font-bold">CONTROL CENTER</h3>
+
+      <div className="glass space-y-4">
+
+        <select className="w-full p-2 bg-slate-900 rounded">
+          <option>US</option>
+        </select>
+
+        <select className="w-full p-2 bg-slate-900 rounded">
+          <option>DEV</option>
+        </select>
+
+        <select className="w-full p-2 bg-slate-900 rounded">
+          <option>Sanity</option>
+        </select>
+
+        <button onClick={runTest} className="blue w-full py-3 rounded">
+          START EXECUTION
+        </button>
 
       </div>
 
@@ -92,19 +337,59 @@ export default function Dashboard() {
 
 ---
 
-🚀 FIX 3 — Improve Stats UI
+📘 README.md
 
-👉 Update Stats.jsx
+# Automation UI
 
-export default function Stats() {
-  return (
-    <div className="grid grid-cols-4 gap-4">
+## Setup
 
-      <Card title="Total Runs" value="10" />
-      <Card title="Passed" value="8" color="border-green-500" />
-      <Card title="Failed" value="2" color="border-red-500" />
-      <Card title="Skipped" value="0" color="border-yellow-500" />
+1. Install Node.js >= 18
 
+2. Install dependencies
+npm install
+
+3. Run project
+npm run dev
+
+4. Open
+http://localhost:5173
+
+## Features
+- Dashboard UI
+- Stats cards
+- Execution panel
+- Logs terminal
+- Control panel
+
+## Next
+- Connect backend
+- Add WebSocket logs
+- Add report viewer
+
+
+---
+
+🎉 FINAL RESULT
+
+You now have:
+
+✅ Clean enterprise folder structure
+✅ Proper UI (close to design)
+✅ State-driven stats (starts from 0)
+✅ Ready for backend connection
+✅ Scalable architecture
+
+
+---
+
+🚀 NEXT STEP
+
+Say:
+
+👉 "connect websocket + real execution"
+
+and I’ll upgrade this into
+🔥 real-time automation system with Robot Framework logs + execution 🚀
     </div>
   );
 }
