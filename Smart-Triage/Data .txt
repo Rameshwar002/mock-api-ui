@@ -1,525 +1,336 @@
-Perfect — here is your clean, enterprise-level React UI structure + all core files (ready to run, no confusion) 🔥
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus AI Automation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"/>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap');
+        
+        :root {
+            --bg: #030712;
+            --tile: #111827;
+            --border: rgba(255, 255, 255, 0.08);
+            --text-main: #f9fafb;
+            --text-dim: #9ca3af;
+            --accent: #3b82f6;
+        }
 
+        [data-theme='light'] {
+            --bg: #f1f5f9;
+            --tile: #ffffff;
+            --border: rgba(15, 23, 42, 0.08);
+            --text-main: #0f172a;
+            --text-dim: #64748b;
+            --accent: #2563eb;
+        }
 
----
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
 
-📁 FINAL PROJECT STRUCTURE
+        /* Structured Layout */
+        .app-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            height: 100vh;
+        }
 
-automation-ui/
-│
-├── public/
-│
-├── src/
-│   ├── components/
-│   │   ├── Dashboard.jsx
-│   │   ├── Stats.jsx
-│   │   ├── Execution.jsx
-│   │   ├── Logs.jsx
-│   │   └── AssistantPanel.jsx
-│   │
-│   ├── hooks/
-│   │   └── useWebSocket.js
-│   │
-│   ├── styles/
-│   │   └── theme.css
-│   │
-│   ├── App.jsx
-│   ├── main.jsx
-│   └── index.css
-│
-├── index.html
-├── package.json
-├── tailwind.config.js
-├── postcss.config.js
-└── README.md
+        .main-pane {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow-y: auto;
+        }
 
+        /* The "Image Style" Tile */
+        .tile {
+            background: var(--tile);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
 
----
+        /* Progress Bar Containment */
+        .bar-rail {
+            width: 100%;
+            height: 12px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 99px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        [data-theme='light'] .bar-rail { background: #e2e8f0; }
 
-📦 1. package.json
+        .bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
-{
-  "name": "automation-ui",
-  "private": true,
-  "version": "1.0.0",
-  "scripts": {
-    "dev": "vite"
-  },
-  "dependencies": {
-    "react": "^18",
-    "react-dom": "^18",
-    "sockjs-client": "^1.6.1",
-    "@stomp/stompjs": "^7.0.0"
-  },
-  "devDependencies": {
-    "vite": "^5",
-    "tailwindcss": "^3",
-    "postcss": "^8",
-    "autoprefixer": "^10"
-  }
-}
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 
+        /* Theme Toggle UI */
+        .toggle-track {
+            width: 50px; height: 26px;
+            background: #374151;
+            border-radius: 20px;
+            position: relative;
+            cursor: pointer;
+            border: 1px solid var(--border);
+        }
+        .toggle-thumb {
+            position: absolute; top: 3px; left: 3px;
+            width: 18px; height: 18px; background: #fff;
+            border-radius: 50%; transition: 0.3s;
+        }
+        [data-theme='light'] .toggle-track { background: #cbd5e1; }
+        [data-theme='light'] .toggle-thumb { transform: translateX(24px); background: #1e293b; }
 
----
+        .orb {
+            width: 14px; height: 14px;
+            background: #3b82f6;
+            border-radius: 50%;
+            filter: blur(2px);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.2); } 100% { opacity: 0.5; transform: scale(1); } }
+    </style>
+</head>
+<body data-theme="dark">
 
-⚙️ 2. Config Files
+<div class="app-grid">
+    <div class="main-pane">
+        <header class="flex justify-between items-center mb-2">
+            <div>
+                <h1 class="text-2xl font-black tracking-tight uppercase">Nexus <span class="text-blue-500">AI</span></h1>
+                <p class="text-[10px] font-bold opacity-50 tracking-[2px] uppercase">Control Dashboard v2.0</p>
+            </div>
+            <div class="toggle-track" onclick="toggleTheme()">
+                <div class="toggle-thumb"></div>
+            </div>
+        </header>
 
-tailwind.config.js
-
-export default {
-  content: ["./index.html", "./src/**/*.{js,jsx}"],
-  theme: { extend: {} },
-  plugins: [],
-}
-
-postcss.config.js
-
-export default {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
-}
-
-
----
-
-🎨 3. Global Styling
-
-src/styles/theme.css
-
-:root {
-  --bg: #020617;
-  --card: rgba(30, 41, 59, 0.6);
-  --border: rgba(255,255,255,0.08);
-}
-
-body {
-  background: radial-gradient(circle at top, #1e293b, #020617);
-  color: white;
-}
-
-.glass {
-  background: var(--card);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 20px;
-}
-
-.green { background: linear-gradient(135deg,#16a34a,#22c55e); }
-.red { background: linear-gradient(135deg,#dc2626,#ef4444); }
-.yellow { background: linear-gradient(135deg,#f59e0b,#fbbf24); }
-.blue { background: linear-gradient(135deg,#2563eb,#3b82f6); }
-
-
----
-
-🚀 4. Entry Files
-
-src/main.jsx
-
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App";
-import "./index.css";
-import "./styles/theme.css";
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-
-
----
-
-src/index.css
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-
----
-
-🧠 5. App.jsx (STATE CONTROL)
-
-import { useState } from "react";
-import Dashboard from "./components/Dashboard";
-import AssistantPanel from "./components/AssistantPanel";
-
-export default function App() {
-
-  const [stats, setStats] = useState({
-    total: 0,
-    passed: 0,
-    failed: 0,
-    skipped: 0
-  });
-
-  return (
-    <div className="flex h-screen">
-
-      <div className="flex-1 overflow-auto">
-        <Dashboard stats={stats} />
-      </div>
-
-      <div className="w-80 border-l border-gray-800">
-        <AssistantPanel setStats={setStats} />
-      </div>
-
-    </div>
-  );
-}
-
-
----
-
-📊 6. Dashboard.jsx
-
-import Stats from "./Stats";
-import Execution from "./Execution";
-import Logs from "./Logs";
-
-export default function Dashboard({ stats }) {
-  return (
-    <div className="p-6 space-y-6">
-
-      <div>
-        <h1 className="text-xs opacity-50">AUTOMATION FRAMEWORK</h1>
-        <h2 className="text-4xl font-bold">DASHBOARD</h2>
-      </div>
-
-      <Stats stats={stats} />
-
-      <div className="grid grid-cols-3 gap-6">
-
-        <div className="col-span-2 space-y-6">
-          <Execution />
-
-          <div className="glass h-64">
-            INTERACTIVE REPORT VIEW
-          </div>
+        <div class="grid grid-cols-4 gap-4">
+            <div class="tile flex flex-col items-center justify-center border-b-4 border-blue-500">
+                <span class="text-[10px] font-bold opacity-40 uppercase">Total Runs</span>
+                <span id="stat-total" class="text-3xl font-extrabold">0</span>
+            </div>
+            <div class="tile flex flex-col items-center justify-center border-b-4 border-emerald-500">
+                <span class="text-[10px] font-bold opacity-40 uppercase text-emerald-500">Passed</span>
+                <span id="stat-passed" class="text-3xl font-extrabold text-emerald-500">0</span>
+            </div>
+            <div class="tile flex flex-col items-center justify-center border-b-4 border-rose-500">
+                <span class="text-[10px] font-bold opacity-40 uppercase text-rose-500">Failed</span>
+                <span id="stat-failed" class="text-3xl font-extrabold text-rose-500">0</span>
+            </div>
+            <div class="tile flex flex-col items-center justify-center border-b-4 border-amber-500">
+                <span class="text-[10px] font-bold opacity-40 uppercase text-amber-500">Skipped</span>
+                <span id="stat-skipped" class="text-3xl font-extrabold text-amber-500">0</span>
+            </div>
         </div>
 
-        <Logs />
+        <div class="grid grid-cols-2 gap-4">
+            <div class="tile flex flex-col justify-between min-h-[220px]">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h4 class="text-xs font-bold opacity-40 uppercase tracking-widest">Live Execution</h4>
+                        <p id="active-suite-name" class="text-xl font-bold mt-1">Awaiting Trigger...</p>
+                    </div>
+                    <span id="run-badge" class="bg-slate-800 text-[9px] px-2 py-1 rounded-md font-bold text-white">IDLE</span>
+                </div>
+                
+                <div class="space-y-4">
+                    <div class="bar-rail">
+                        <div id="main-p-bar" class="bar-fill"></div>
+                    </div>
+                    <div class="flex justify-between items-center text-[10px] font-mono opacity-50 uppercase">
+                        <span id="status-text">Ready</span>
+                        <span id="percentage-text">0%</span>
+                    </div>
+                </div>
+            </div>
 
-      </div>
+            <div class="tile flex flex-col items-center">
+                <h4 class="text-xs font-bold opacity-40 uppercase tracking-widest self-start mb-4">Historical Success</h4>
+                <div class="h-32 w-full flex items-center justify-center">
+                    <canvas id="historyChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="tile flex-1 p-0 overflow-hidden flex flex-col">
+            <div class="p-3 bg-black/20 border-b border-white/5 flex items-center gap-2">
+                <i class="fas fa-file-alt text-xs opacity-40"></i>
+                <span class="text-[10px] font-bold opacity-60 uppercase">Interactive Log Report</span>
+            </div>
+            <iframe id="report-frame" src="about:blank" class="flex-1 w-full bg-slate-900 border-none"></iframe>
+        </div>
     </div>
-  );
-}
 
-
----
-
-📦 7. Stats.jsx
-
-export default function Stats({ stats }) {
-  return (
-    <div className="grid grid-cols-4 gap-5">
-
-      <div className="glass">
-        <p>Total Runs</p>
-        <h2 className="text-4xl">{stats.total}</h2>
-      </div>
-
-      <div className="green p-5 rounded-xl">
-        <p>Passed</p>
-        <h2 className="text-4xl">{stats.passed}</h2>
-      </div>
-
-      <div className="red p-5 rounded-xl">
-        <p>Failed</p>
-        <h2 className="text-4xl">{stats.failed}</h2>
-      </div>
-
-      <div className="yellow p-5 rounded-xl">
-        <p>Skipped</p>
-        <h2 className="text-4xl">{stats.skipped}</h2>
-      </div>
-
-    </div>
-  );
-}
-
-
----
-
-⚡ 8. Execution.jsx
-
-export default function Execution() {
-  return (
-    <div className="glass space-y-4">
-
-      <div className="flex justify-between">
-        <h4>CURRENT EXECUTION</h4>
-        <span className="bg-green-600 px-2 rounded text-xs">
-          RUNNING
-        </span>
-      </div>
-
-      <div className="w-full bg-gray-700 h-3 rounded">
-        <div className="bg-green-400 h-3 w-2/3 rounded"></div>
-      </div>
-
-      <p className="text-xs">RUNNING ROBOT SCRIPT...</p>
-
-    </div>
-  );
-}
-
-
----
-
-🖥️ 9. Logs.jsx (LIVE READY)
-
-import { useState } from "react";
-
-export default function Logs() {
-
-  const [logs] = useState([
-    "Framework Initialized...",
-    "Running test...",
-    "Success"
-  ]);
-
-  return (
-    <div className="glass h-80 overflow-auto font-mono text-xs">
-      {logs.map((l, i) => (
-        <p key={i}>{"> " + l}</p>
-      ))}
-    </div>
-  );
-}
-
-
----
-
-🤖 10. AssistantPanel.jsx
-
-export default function AssistantPanel({ setStats }) {
-
-  const runTest = () => {
-    setStats({
-      total: 4,
-      passed: 3,
-      failed: 1,
-      skipped: 0
-    });
-  };
-
-  return (
-    <div className="p-6 space-y-6">
-
-      <h3 className="font-bold">CONTROL CENTER</h3>
-
-      <div className="glass space-y-4">
-
-        <select className="w-full p-2 bg-slate-900 rounded">
-          <option>US</option>
-        </select>
-
-        <select className="w-full p-2 bg-slate-900 rounded">
-          <option>DEV</option>
-        </select>
-
-        <select className="w-full p-2 bg-slate-900 rounded">
-          <option>Sanity</option>
-        </select>
-
-        <button onClick={runTest} className="blue w-full py-3 rounded">
-          START EXECUTION
-        </button>
-
-      </div>
-
-    </div>
-  );
-}
-
-
----
-
-📘 README.md
-
-# Automation UI
-
-## Setup
-
-1. Install Node.js >= 18
-
-2. Install dependencies
-npm install
-
-3. Run project
-npm run dev
-
-4. Open
-http://localhost:5173
-
-## Features
-- Dashboard UI
-- Stats cards
-- Execution panel
-- Logs terminal
-- Control panel
-
-## Next
-- Connect backend
-- Add WebSocket logs
-- Add report viewer
-
-
----
-
-🎉 FINAL RESULT
-
-You now have:
-
-✅ Clean enterprise folder structure
-✅ Proper UI (close to design)
-✅ State-driven stats (starts from 0)
-✅ Ready for backend connection
-✅ Scalable architecture
-
-
----
-
-🚀 NEXT STEP
-
-Say:
-
-👉 "connect websocket + real execution"
-
-and I’ll upgrade this into
-🔥 real-time automation system with Robot Framework logs + execution 🚀
-    </div>
-  );
-}
-
-function Card({ title, value, color }) {
-  return (
-    <div className={`bg-slate-800 p-4 rounded-xl border-l-4 ${color || ""}`}>
-      <p className="text-xs opacity-50 uppercase">{title}</p>
-      <h2 className="text-2xl font-bold">{value}</h2>
-    </div>
-  );
-}
-
-
----
-
-🚀 FIX 4 — Improve Execution UI
-
-👉 Update Execution.jsx
-
-export default function Execution() {
-  return (
-    <div className="bg-slate-800 p-5 rounded-xl space-y-4">
-
-      <div className="flex justify-between">
-        <h4 className="font-bold">CURRENT EXECUTION</h4>
-        <span className="bg-green-600 px-2 py-1 text-xs rounded">
-          Running
-        </span>
-      </div>
-
-      <div className="w-full bg-gray-700 h-2 rounded">
-        <div className="bg-green-400 h-2 w-2/3 rounded"></div>
-      </div>
-
-      <p className="text-xs opacity-60">
-        Running robot script...
-      </p>
-
-    </div>
-  );
-}
-
-
----
-
-🚀 FIX 5 — Logs UI (Terminal Style)
-
-👉 Update Logs.jsx
-
-export default function Logs() {
-  return (
-    <div className="bg-black text-green-400 text-xs p-3 rounded-xl h-64 overflow-auto font-mono">
-      <p>{"> Framework Initialized..."}</p>
-      <p>{"> Running login test..."}</p>
-      <p>{"> Success"}</p>
-    </div>
-  );
-}
-
-
----
-
-🚀 FIX 6 — Assistant Panel (RIGHT SIDE)
-
-👉 Update AssistantPanel.jsx
-
-export default function AssistantPanel() {
-  return (
-    <div className="p-6 space-y-6 bg-slate-800 h-full flex flex-col">
-
-      <h3 className="font-bold text-sm uppercase">Control Center</h3>
-
-      <select className="p-3 bg-slate-900 rounded">
-        <option>US</option>
-        <option>EU</option>
-      </select>
-
-      <select className="p-3 bg-slate-900 rounded">
-        <option>DEV</option>
-        <option>PROD</option>
-      </select>
-
-      <select className="p-3 bg-slate-900 rounded">
-        <option>Sanity</option>
-        <option>Regression</option>
-      </select>
-
-      <button className="bg-blue-600 p-3 rounded-xl font-bold">
-        START EXECUTION
-      </button>
-
-      <div className="mt-auto text-center text-xs opacity-50">
-        System Standby
-      </div>
-
-    </div>
-  );
-}
-
-
----
-
-🎉 RESULT
-
-Now your UI will look:
-
-✔ Proper 2-panel layout
-✔ Dashboard structured
-✔ Cards aligned
-✔ Execution clean
-✔ Terminal logs styled
-✔ Control panel fixed
-
-
----
-
-🔥 NEXT STEP
-
-Now your UI is clean + stable
-
-👉 Say: "connect live logs + backend"
-
-Next I’ll:
-
-Add WebSocket logs (real-time)
-
-Connect Robot execution
-
-Make dashboard dynamic
-
-
-🔥 Full system coming next
+    <aside class="bg-black/20 border-l border-white/5 p-6 flex flex-col gap-6">
+        <div class="flex items-center gap-3">
+            <div class="orb"></div>
+            <span class="text-sm font-bold uppercase tracking-widest">Command Center</span>
+        </div>
+
+        <div class="tile space-y-5 bg-white/5">
+            <h4 class="text-[10px] font-bold opacity-40 uppercase">Run Parameters</h4>
+            
+            <div class="space-y-4">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold opacity-50 uppercase ml-1">Region</label>
+                    <select id="sel-region" class="w-full bg-slate-800 border border-white/10 p-3 rounded-xl text-xs outline-none focus:border-blue-500">
+                        <option value="US">North America (US)</option>
+                        <option value="EU">Europe (EU)</option>
+                        <option value="APAC">Asia Pacific (APAC)</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold opacity-50 uppercase ml-1">Environment</label>
+                    <select id="sel-env" class="w-full bg-slate-800 border border-white/10 p-3 rounded-xl text-xs outline-none focus:border-blue-500">
+                        <option value="DEV">Development (DEV)</option>
+                        <option value="PROD">Production (PROD)</option>
+                    </select>
+                </div>
+                <button onclick="runSuite()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 transition-all active:scale-95">
+                    Start Execution
+                </button>
+            </div>
+        </div>
+
+        <div class="tile flex-1 flex flex-col bg-black/40 p-0 overflow-hidden border-dashed">
+            <div class="p-3 border-b border-white/5 bg-white/5 text-[9px] font-bold opacity-40 uppercase">System Output</div>
+            <div id="log-container" class="p-4 flex-1 font-mono text-[10px] space-y-2 overflow-y-auto text-blue-300">
+                <p>> System standby...</p>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<script>
+    let historyChart;
+
+    function toggleTheme() {
+        const current = document.body.getAttribute('data-theme');
+        document.body.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
+    }
+
+    function addLog(msg, isError = false) {
+        const container = document.getElementById('log-container');
+        const p = document.createElement('p');
+        p.className = isError ? "text-rose-400" : "text-blue-300";
+        p.innerText = `[${new Date().toLocaleTimeString()}] > ${msg}`;
+        container.prepend(p);
+    }
+
+    // --- RESET AND EXECUTE ---
+    async function runSuite() {
+        // 1. Instant Zero Reset
+        document.getElementById('stat-total').innerText = "0";
+        document.getElementById('stat-passed').innerText = "0";
+        document.getElementById('stat-failed').innerText = "0";
+        document.getElementById('stat-skipped').innerText = "0";
+        document.getElementById('main-p-bar').style.width = "0%";
+        document.getElementById('percentage-text').innerText = "0%";
+        
+        historyChart.data.datasets[0].data = [0, 0, 0];
+        historyChart.update();
+
+        const region = document.getElementById('sel-region').value;
+        const env = document.getElementById('sel-env').value;
+        addLog(`Connecting to ${region} ${env} environment...`);
+
+        try {
+            const res = await fetch('/chat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ message: `Run Sanity for ${region} ${env}` })
+            });
+            const data = await res.json();
+            if(data.type === 'success') beginPolling(data.test_type);
+        } catch (e) {
+            addLog("Error: Backend communication failed.", true);
+        }
+    }
+
+    function beginPolling(type) {
+        document.getElementById('active-suite-name').innerText = type.toUpperCase() + " RUN";
+        const badge = document.getElementById('run-badge');
+        badge.innerText = "RUNNING";
+        badge.className = "bg-emerald-600 text-[9px] px-2 py-1 rounded-md font-bold text-white animate-pulse";
+
+        let prog = 0;
+        const bar = document.getElementById('main-p-bar');
+
+        const timer = setInterval(async () => {
+            const res = await fetch('/status');
+            const data = await res.json();
+            
+            if (data.status === 'running') {
+                if (prog < 90) prog += 7;
+                bar.style.width = prog + "%";
+                document.getElementById('percentage-text').innerText = prog + "%";
+                document.getElementById('status-text').innerText = "Executing Robot Script...";
+            } else if (data.status === 'completed') {
+                clearInterval(timer);
+                bar.style.width = "100%";
+                document.getElementById('percentage-text').innerText = "100%";
+                finalizeUI(data);
+            }
+        }, 1200);
+    }
+
+    function finalizeUI(data) {
+        document.getElementById('stat-total').innerText = data.total;
+        document.getElementById('stat-passed').innerText = data.passed;
+        document.getElementById('stat-failed').innerText = data.failed;
+        document.getElementById('stat-skipped').innerText = data.skipped;
+        
+        const badge = document.getElementById('run-badge');
+        badge.innerText = "FINISHED";
+        badge.className = "bg-blue-600 text-[9px] px-2 py-1 rounded-md font-bold text-white";
+        document.getElementById('status-text').innerText = "Task Complete";
+        document.getElementById('report-frame').src = "/results/report.html";
+
+        historyChart.data.datasets[0].data = [data.passed, data.failed, data.skipped];
+        historyChart.update();
+        addLog(`Run Finished. Result: ${data.passed}P / ${data.failed}F`);
+    }
+
+    window.onload = () => {
+        const ctx = document.getElementById('historyChart').getContext('2d');
+        historyChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Pass', 'Fail', 'Skip'],
+                datasets: [{
+                    data: [0, 0, 0],
+                    backgroundColor: ['#10b981', '#f43f5e', '#f59e0b'],
+                    borderWidth: 0
+                }]
+            },
+            options: { 
+                cutout: '80%', 
+                plugins: { legend: { display: false } },
+                maintainAspectRatio: false
+            }
+        });
+    };
+</script>
+</body>
+</html>
