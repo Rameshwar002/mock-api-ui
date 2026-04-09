@@ -1,230 +1,240 @@
-:root {
-  --bg: #0b0f1a;
-  --card: rgba(30, 41, 59, 0.7);
-  --text: #ffffff;
-}
+Good — that means your app is working now ✅
+Issue now is just UI structure (layout + styling) — not logic.
 
-[data-theme='light'] {
-  --bg: #f8fafc;
-  --card: #ffffff;
-  --text: #1e293b;
-}
-
-body {
-  background: var(--bg);
-  color: var(--text);
-}
-
-.glass {
-  background: var(--card);
-  backdrop-filter: blur(10px);
-  border-radius: 16px;
-  padding: 16px;
-}
+Let’s fix your UI to match your original design 🔥
 
 
-src/App.jsx
+---
+
+🎯 Goal
+
+Restore proper layout:
+
+| Dashboard (Left - 70%) | Control Panel (Right - 30%) |
+
+
+---
+
+🚀 FIX 1 — Correct Main Layout (IMPORTANT)
+
+👉 Update your App.jsx
 
 import Dashboard from "./components/Dashboard";
 import AssistantPanel from "./components/AssistantPanel";
-import { useState } from "react";
 
-function App() {
-  const [theme, setTheme] = useState("dark");
-
-  const toggleTheme = () => {
-    document.documentElement.setAttribute(
-      "data-theme",
-      theme === "dark" ? "light" : "dark"
-    );
-    setTheme(theme === "dark" ? "light" : "dark");
-  };
-
+export default function App() {
   return (
-    <div className="flex h-screen">
-      <Dashboard toggleTheme={toggleTheme} />
-      <AssistantPanel />
+    <div className="flex h-screen bg-slate-900 text-white">
+      
+      {/* LEFT */}
+      <div className="flex-1 overflow-auto">
+        <Dashboard />
+      </div>
+
+      {/* RIGHT */}
+      <div className="w-80 border-l border-gray-700">
+        <AssistantPanel />
+      </div>
+
     </div>
   );
 }
 
-export default App;
 
+---
 
-src/components/Dashboard.jsx
+🚀 FIX 2 — Proper Dashboard Structure
+
+👉 Update Dashboard.jsx
 
 import Stats from "./Stats";
 import Execution from "./Execution";
-import ChartView from "./ChartView";
 import Logs from "./Logs";
 
-export default function Dashboard({ toggleTheme }) {
+export default function Dashboard() {
   return (
-    <div className="flex-1 p-6 space-y-6 overflow-auto">
+    <div className="p-6 space-y-6">
 
       {/* HEADER */}
-      <div className="flex justify-between">
-        <div>
-          <h1 className="text-xs opacity-50">Automation Framework</h1>
-          <h2 className="text-2xl font-bold">DASHBOARD</h2>
-        </div>
-
-        <button onClick={toggleTheme} className="bg-gray-700 px-4 py-2 rounded">
-          Toggle Theme
-        </button>
+      <div>
+        <h1 className="text-xs opacity-50 uppercase">
+          Automation Framework
+        </h1>
+        <h2 className="text-2xl font-bold">DASHBOARD</h2>
       </div>
 
+      {/* STATS */}
       <Stats />
 
+      {/* MAIN GRID */}
       <div className="grid grid-cols-3 gap-6">
+
+        {/* LEFT SIDE */}
         <div className="col-span-2 space-y-6">
           <Execution />
-          <div className="glass h-64">Report Viewer</div>
+
+          <div className="bg-slate-800 rounded-xl p-4 h-64">
+            Report Viewer
+          </div>
         </div>
 
+        {/* RIGHT SIDE */}
         <div className="space-y-6">
-          <ChartView />
           <Logs />
         </div>
+
       </div>
+
     </div>
   );
 }
 
 
+---
 
-src/components/Stats.jsx
+🚀 FIX 3 — Improve Stats UI
+
+👉 Update Stats.jsx
 
 export default function Stats() {
   return (
     <div className="grid grid-cols-4 gap-4">
-      <Card title="Total Runs" value="4" />
-      <Card title="Passed" value="3" color="bg-green-600" />
-      <Card title="Failed" value="1" color="bg-red-600" />
-      <Card title="Skipped" value="0" color="bg-yellow-500" />
+
+      <Card title="Total Runs" value="10" />
+      <Card title="Passed" value="8" color="border-green-500" />
+      <Card title="Failed" value="2" color="border-red-500" />
+      <Card title="Skipped" value="0" color="border-yellow-500" />
+
     </div>
   );
 }
 
 function Card({ title, value, color }) {
   return (
-    <div className={`glass ${color || ""}`}>
-      <p className="text-xs opacity-50">{title}</p>
+    <div className={`bg-slate-800 p-4 rounded-xl border-l-4 ${color || ""}`}>
+      <p className="text-xs opacity-50 uppercase">{title}</p>
       <h2 className="text-2xl font-bold">{value}</h2>
     </div>
   );
 }
 
 
-✅ src/components/Execution.jsx
+---
+
+🚀 FIX 4 — Improve Execution UI
+
+👉 Update Execution.jsx
 
 export default function Execution() {
   return (
-    <div className="glass space-y-4">
+    <div className="bg-slate-800 p-5 rounded-xl space-y-4">
+
       <div className="flex justify-between">
-        <h4>Current Execution</h4>
-        <span className="bg-green-600 px-2 rounded text-xs">Running</span>
+        <h4 className="font-bold">CURRENT EXECUTION</h4>
+        <span className="bg-green-600 px-2 py-1 text-xs rounded">
+          Running
+        </span>
       </div>
 
       <div className="w-full bg-gray-700 h-2 rounded">
-        <div className="bg-green-400 h-2 w-3/4 rounded"></div>
+        <div className="bg-green-400 h-2 w-2/3 rounded"></div>
       </div>
 
-      <p className="text-xs">Running robot script...</p>
+      <p className="text-xs opacity-60">
+        Running robot script...
+      </p>
 
-      <div className="flex gap-2">
-        <button className="bg-gray-600 px-3 py-1 rounded">Retry</button>
-        <button className="bg-blue-600 px-3 py-1 rounded">Download</button>
-      </div>
     </div>
   );
 }
 
 
-src/components/ChartView.jsx
+---
 
-import { Doughnut } from "react-chartjs-2";
-import { Chart, ArcElement } from "chart.js";
+🚀 FIX 5 — Logs UI (Terminal Style)
 
-Chart.register(ArcElement);
-
-export default function ChartView() {
-  const data = {
-    labels: ["Pass", "Fail", "Skip"],
-    datasets: [
-      {
-        data: [3, 1, 0],
-      },
-    ],
-  };
-
-  return (
-    <div className="glass">
-      <h4>Execution History</h4>
-      <Doughnut data={data} />
-    </div>
-  );
-}
-
-
-✅ src/components/Logs.jsx
+👉 Update Logs.jsx
 
 export default function Logs() {
   return (
-    <div className="glass h-64 overflow-auto bg-black text-green-400 text-xs p-3">
-      <p>> Framework Initialized...</p>
-      <p>> Running login test...</p>
-      <p>> Success</p>
+    <div className="bg-black text-green-400 text-xs p-3 rounded-xl h-64 overflow-auto font-mono">
+      <p>{"> Framework Initialized..."}</p>
+      <p>{"> Running login test..."}</p>
+      <p>{"> Success"}</p>
     </div>
   );
 }
 
 
-src/components/AssistantPanel.jsx
+---
 
+🚀 FIX 6 — Assistant Panel (RIGHT SIDE)
+
+👉 Update AssistantPanel.jsx
 
 export default function AssistantPanel() {
   return (
-    <div className="w-80 bg-gray-900 p-6 flex flex-col gap-6">
-      <h3 className="font-bold">Control Center</h3>
+    <div className="p-6 space-y-6 bg-slate-800 h-full flex flex-col">
 
-      <select className="p-2 bg-gray-800">
+      <h3 className="font-bold text-sm uppercase">Control Center</h3>
+
+      <select className="p-3 bg-slate-900 rounded">
         <option>US</option>
         <option>EU</option>
       </select>
 
-      <select className="p-2 bg-gray-800">
+      <select className="p-3 bg-slate-900 rounded">
         <option>DEV</option>
         <option>PROD</option>
       </select>
 
-      <select className="p-2 bg-gray-800">
+      <select className="p-3 bg-slate-900 rounded">
         <option>Sanity</option>
         <option>Regression</option>
       </select>
 
-      <button className="bg-blue-600 p-3 rounded">
-        Start Execution
+      <button className="bg-blue-600 p-3 rounded-xl font-bold">
+        START EXECUTION
       </button>
 
-      <div className="text-center mt-auto">
-        <p className="text-xs opacity-50">System Standby</p>
+      <div className="mt-auto text-center text-xs opacity-50">
+        System Standby
       </div>
+
     </div>
   );
 }
 
 
+---
 
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App";
-import "./index.css";
-import "./styles/theme.css";
+🎉 RESULT
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+Now your UI will look:
 
+✔ Proper 2-panel layout
+✔ Dashboard structured
+✔ Cards aligned
+✔ Execution clean
+✔ Terminal logs styled
+✔ Control panel fixed
+
+
+---
+
+🔥 NEXT STEP
+
+Now your UI is clean + stable
+
+👉 Say: "connect live logs + backend"
+
+Next I’ll:
+
+Add WebSocket logs (real-time)
+
+Connect Robot execution
+
+Make dashboard dynamic
+
+
+🔥 Full system coming next
