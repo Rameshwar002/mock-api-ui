@@ -1,0 +1,217 @@
+:root {
+  --bg: #0b0f1a;
+  --card: rgba(30, 41, 59, 0.7);
+  --text: #ffffff;
+}
+
+[data-theme='light'] {
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --text: #1e293b;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.glass {
+  background: var(--card);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+
+src/App.jsx
+
+import Dashboard from "./components/Dashboard";
+import AssistantPanel from "./components/AssistantPanel";
+import { useState } from "react";
+
+function App() {
+  const [theme, setTheme] = useState("dark");
+
+  const toggleTheme = () => {
+    document.documentElement.setAttribute(
+      "data-theme",
+      theme === "dark" ? "light" : "dark"
+    );
+    setTheme(theme === "dark" ? "light" : "dark");
+  };
+
+  return (
+    <div className="flex h-screen">
+      <Dashboard toggleTheme={toggleTheme} />
+      <AssistantPanel />
+    </div>
+  );
+}
+
+export default App;
+
+
+src/components/Dashboard.jsx
+
+import Stats from "./Stats";
+import Execution from "./Execution";
+import ChartView from "./ChartView";
+import Logs from "./Logs";
+
+export default function Dashboard({ toggleTheme }) {
+  return (
+    <div className="flex-1 p-6 space-y-6 overflow-auto">
+
+      {/* HEADER */}
+      <div className="flex justify-between">
+        <div>
+          <h1 className="text-xs opacity-50">Automation Framework</h1>
+          <h2 className="text-2xl font-bold">DASHBOARD</h2>
+        </div>
+
+        <button onClick={toggleTheme} className="bg-gray-700 px-4 py-2 rounded">
+          Toggle Theme
+        </button>
+      </div>
+
+      <Stats />
+
+      <div className="grid grid-cols-3 gap-6">
+        <div className="col-span-2 space-y-6">
+          <Execution />
+          <div className="glass h-64">Report Viewer</div>
+        </div>
+
+        <div className="space-y-6">
+          <ChartView />
+          <Logs />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+src/components/Stats.jsx
+
+export default function Stats() {
+  return (
+    <div className="grid grid-cols-4 gap-4">
+      <Card title="Total Runs" value="4" />
+      <Card title="Passed" value="3" color="bg-green-600" />
+      <Card title="Failed" value="1" color="bg-red-600" />
+      <Card title="Skipped" value="0" color="bg-yellow-500" />
+    </div>
+  );
+}
+
+function Card({ title, value, color }) {
+  return (
+    <div className={`glass ${color || ""}`}>
+      <p className="text-xs opacity-50">{title}</p>
+      <h2 className="text-2xl font-bold">{value}</h2>
+    </div>
+  );
+}
+
+
+✅ src/components/Execution.jsx
+
+export default function Execution() {
+  return (
+    <div className="glass space-y-4">
+      <div className="flex justify-between">
+        <h4>Current Execution</h4>
+        <span className="bg-green-600 px-2 rounded text-xs">Running</span>
+      </div>
+
+      <div className="w-full bg-gray-700 h-2 rounded">
+        <div className="bg-green-400 h-2 w-3/4 rounded"></div>
+      </div>
+
+      <p className="text-xs">Running robot script...</p>
+
+      <div className="flex gap-2">
+        <button className="bg-gray-600 px-3 py-1 rounded">Retry</button>
+        <button className="bg-blue-600 px-3 py-1 rounded">Download</button>
+      </div>
+    </div>
+  );
+}
+
+
+src/components/ChartView.jsx
+
+import { Doughnut } from "react-chartjs-2";
+import { Chart, ArcElement } from "chart.js";
+
+Chart.register(ArcElement);
+
+export default function ChartView() {
+  const data = {
+    labels: ["Pass", "Fail", "Skip"],
+    datasets: [
+      {
+        data: [3, 1, 0],
+      },
+    ],
+  };
+
+  return (
+    <div className="glass">
+      <h4>Execution History</h4>
+      <Doughnut data={data} />
+    </div>
+  );
+}
+
+
+✅ src/components/Logs.jsx
+
+export default function Logs() {
+  return (
+    <div className="glass h-64 overflow-auto bg-black text-green-400 text-xs p-3">
+      <p>> Framework Initialized...</p>
+      <p>> Running login test...</p>
+      <p>> Success</p>
+    </div>
+  );
+}
+
+
+src/components/AssistantPanel.jsx
+
+
+export default function AssistantPanel() {
+  return (
+    <div className="w-80 bg-gray-900 p-6 flex flex-col gap-6">
+      <h3 className="font-bold">Control Center</h3>
+
+      <select className="p-2 bg-gray-800">
+        <option>US</option>
+        <option>EU</option>
+      </select>
+
+      <select className="p-2 bg-gray-800">
+        <option>DEV</option>
+        <option>PROD</option>
+      </select>
+
+      <select className="p-2 bg-gray-800">
+        <option>Sanity</option>
+        <option>Regression</option>
+      </select>
+
+      <button className="bg-blue-600 p-3 rounded">
+        Start Execution
+      </button>
+
+      <div className="text-center mt-auto">
+        <p className="text-xs opacity-50">System Standby</p>
+      </div>
+    </div>
+  );
+}
+
+
