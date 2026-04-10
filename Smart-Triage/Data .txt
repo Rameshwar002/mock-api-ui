@@ -1,313 +1,140 @@
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs/lib/stomp.min.js"></script>
 
----
+<script>
+let historyChart;
+let stompClient = null;
 
-🚀 FINAL BACKEND STRUCTURE
+// 🔌 CONNECT WEBSOCKET
+function connectSocket() {
+    const socket = new SockJS("http://localhost:8080/ws");
+    stompClient = Stomp.over(socket);
 
-automation-backend/
-│
-├── config/
-│   └── WebSocketConfig.java
-│
-├── controller/
-│   ├── ChatController.java
-│   └── ExecutionController.java
-│
-├── service/
-│   └── RobotService.java
-│
-├── model/
-│   └── ExecutionStatus.java
-│
-└── AutomationApplication.java
+    stompClient.connect({}, function () {
+        addLog("Connected to backend");
 
+        // 🔥 LOG STREAM
+        stompClient.subscribe("/topic/logs", function (msg) {
+            addLog(msg.body);
+        });
 
----
+        // 🔥 STATUS STREAM
+        stompClient.subscribe("/topic/status", function (msg) {
+            const data = JSON.parse(msg.body);
+            updateUI(data);
+        });
+    });
+}
 
-🧠 1. MAIN APPLICATION
+// 🧠 UPDATE UI FROM BACKEND
+function updateUI(data) {
+    document.getElementById('stat-total').innerText = data.total;
+    document.getElementById('stat-passed').innerText = data.passed;
+    document.getElementById('stat-failed').innerText = data.failed;
+    document.getElementById('stat-skipped').innerText = data.skipped;
 
-@SpringBootApplication
-public class AutomationApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(AutomationApplication.class, args);
+    // Progress calculation
+    let percent = data.total === 0 ? 0 : Math.floor((data.passed + data.failed) / data.total * 100);
+    document.getElementById('main-p-bar').style.width = percent + "%";
+    document.getElementById('percentage-text').innerText = percent + "%";
+
+    if (data.status === "running") {
+        document.getElementById('status-text').innerText = "Executing...";
+    }
+
+    if (data.status === "completed") {
+        finalizeUI(data);
     }
 }
 
+// 🚀 RUN TEST (CONNECTED TO SPRING BOOT)
+async function runSuite() {
 
----
+    // Reset UI
+    document.getElementById('log-container').innerHTML = "";
+    updateUI({ total: 0, passed: 0, failed: 0, skipped: 0 });
 
-⚙️ 2. WebSocketConfig.java
+    const region = document.getElementById('sel-region').value;
+    const env = document.getElementById('sel-env').value;
 
-package config;
+    const type = "sanity"; // or dynamic later
 
-import org.springframework.context.annotation.Configuration;
-import org.springframework.messaging.simp.config.MessageBrokerRegistry;
-import org.springframework.web.socket.config.annotation.*;
+    document.getElementById('active-suite-name').innerText = type.toUpperCase();
+    
+    const badge = document.getElementById('run-badge');
+    badge.innerText = "RUNNING";
+    badge.className = "bg-emerald-600 text-[9px] px-2 py-1 rounded-md font-bold text-white animate-pulse";
 
-@Configuration
-@EnableWebSocketMessageBroker
-public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+    addLog(`Starting execution: ${region} ${env}`);
 
-    @Override
-    public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/topic"); // UI subscribes here
-        config.setApplicationDestinationPrefixes("/app");
-    }
-
-    @Override
-    public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws")
-                .setAllowedOrigins("*")
-                .withSockJS();
-    }
+    // 🔥 CALL BACKEND
+    await fetch("http://localhost:8080/run", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            region: region,
+            env: env,
+            type: type
+        })
+    });
 }
 
+// ✅ FINAL UI STATE
+function finalizeUI(data) {
+    const badge = document.getElementById('run-badge');
+    badge.innerText = "FINISHED";
+    badge.className = "bg-blue-600 text-[9px] px-2 py-1 rounded-md font-bold text-white";
 
----
+    document.getElementById('status-text').innerText = "Completed";
 
-📦 3. ExecutionStatus.java (MODEL)
+    // Load Robot report
+    document.getElementById('report-frame').src = "http://localhost:8080/results/report.html";
 
-package model;
+    historyChart.data.datasets[0].data = [data.passed, data.failed, data.skipped];
+    historyChart.update();
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class ExecutionStatus {
-
-    private String status;   // running / completed
-    private int total;
-    private int passed;
-    private int failed;
-    private int skipped;
+    addLog(`Execution Completed ✅`);
 }
 
+// 🧾 LOG UI
+function addLog(msg, isError = false) {
+    const container = document.getElementById('log-container');
 
----
+    const p = document.createElement('p');
+    p.className = isError ? "text-rose-400" : "text-blue-300";
+    p.innerText = `[${new Date().toLocaleTimeString()}] > ${msg}`;
 
-🤖 4. RobotService.java (CORE LOGIC)
+    container.prepend(p);
+}
 
-package service;
+// 🌗 THEME
+function toggleTheme() {
+    const current = document.body.getAttribute('data-theme');
+    document.body.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
+}
 
-import lombok.RequiredArgsConstructor;
-import model.ExecutionStatus;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.stereotype.Service;
+// 📊 CHART INIT
+window.onload = () => {
+    connectSocket(); // 🔥 IMPORTANT
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-
-@Service
-@RequiredArgsConstructor
-public class RobotService {
-
-    private final SimpMessagingTemplate template;
-
-    public void execute(String region, String env, String type) {
-
-        try {
-            template.convertAndSend("/topic/logs",
-                    "🚀 Starting execution for " + region + " " + env);
-
-            ProcessBuilder pb = new ProcessBuilder(
-                    "robot",
-                    "-d", "results",
-                    "-v", "REGION:" + region,
-                    "-v", "ENV:" + env,
-                    "tests/" + type + ".robot"
-            );
-
-            Process process = pb.start();
-
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream())
-            );
-
-            String line;
-            int passed = 0, failed = 0;
-
-            while ((line = reader.readLine()) != null) {
-
-                // 🔥 Send log to UI
-                template.convertAndSend("/topic/logs", line);
-
-                if (line.contains("PASS")) passed++;
-                if (line.contains("FAIL")) failed++;
-
-                // 🔥 Send live status
-                template.convertAndSend("/topic/status",
-                        new ExecutionStatus(
-                                "running",
-                                passed + failed,
-                                passed,
-                                failed,
-                                0
-                        )
-                );
-            }
-
-            process.waitFor();
-
-            // ✅ Final update
-            template.convertAndSend("/topic/status",
-                    new ExecutionStatus(
-                            "completed",
-                            passed + failed,
-                            passed,
-                            failed,
-                            0
-                    )
-            );
-
-            template.convertAndSend("/topic/logs", "✅ Execution Completed");
-
-        } catch (Exception e) {
-            template.convertAndSend("/topic/logs",
-                    "❌ Error: " + e.getMessage());
+    const ctx = document.getElementById('historyChart').getContext('2d');
+    historyChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Pass', 'Fail', 'Skip'],
+            datasets: [{
+                data: [0, 0, 0],
+                backgroundColor: ['#10b981', '#f43f5e', '#f59e0b'],
+                borderWidth: 0
+            }]
+        },
+        options: { 
+            cutout: '80%', 
+            plugins: { legend: { display: false } },
+            maintainAspectRatio: false
         }
-    }
-}
-
-
----
-
-🎯 5. ExecutionController.java
-
-package controller;
-
-import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
-import service.RobotService;
-
-import java.util.Map;
-
-@RestController
-@RequiredArgsConstructor
-@CrossOrigin("*")
-public class ExecutionController {
-
-    private final RobotService robotService;
-
-    @PostMapping("/run")
-    public String run(@RequestBody Map<String, String> req) {
-
-        new Thread(() ->
-                robotService.execute(
-                        req.get("region"),
-                        req.get("env"),
-                        req.get("type")
-                )
-        ).start();
-
-        return "Execution Started";
-    }
-}
-
-
----
-
-🧠 6. ChatController.java (OPTIONAL AI ENTRY)
-
-package controller;
-
-import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
-
-@RestController
-@CrossOrigin("*")
-public class ChatController {
-
-    @PostMapping("/chat")
-    public Map<String, String> chat(@RequestBody Map<String, String> req) {
-
-        String msg = req.get("message").toLowerCase();
-
-        String type = "sanity";
-
-        if (msg.contains("regression")) {
-            type = "regression";
-        }
-
-        return Map.of(
-                "type", "success",
-                "test_type", type
-        );
-    }
-}
-
-
----
-
-⚙️ 7. application.properties
-
-server.port=8080
-
-spring.mvc.pathmatch.matching-strategy=ant_path_matcher
-
-
----
-
-📁 8. ROBOT FILES
-
-tests/
-   sanity.robot
-   regression.robot
-
-results/
-
-
----
-
-🧪 SAMPLE ROBOT FILE
-
-*** Variables ***
-${REGION}
-${ENV}
-
-*** Test Cases ***
-Login Test
-    Log    Running in ${REGION} ${ENV}
-    Sleep  1s
-    Log    PASS
-
-Search Test
-    Sleep  1s
-    Log    FAIL
-
-
----
-
-🔌 FRONTEND CONNECTION SUMMARY
-
-Your UI will:
-
-1. Connect WebSocket
-
-/ws
-
-2. Listen:
-
-/topic/logs
-/topic/status
-
-3. Trigger execution:
-
-POST /run
-{
-  "region": "US",
-  "env": "DEV",
-  "type": "sanity"
-}
-
-
----
-
-
-
----
-
-🚀 NEXT LEVEL (HIGHLY RECOMMENDED)
-
+    });
+};
+</script>
