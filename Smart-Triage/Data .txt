@@ -1,336 +1,313 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nexus AI Automation</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"/>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap');
-        
-        :root {
-            --bg: #030712;
-            --tile: #111827;
-            --border: rgba(255, 255, 255, 0.08);
-            --text-main: #f9fafb;
-            --text-dim: #9ca3af;
-            --accent: #3b82f6;
-        }
 
-        [data-theme='light'] {
-            --bg: #f1f5f9;
-            --tile: #ffffff;
-            --border: rgba(15, 23, 42, 0.08);
-            --text-main: #0f172a;
-            --text-dim: #64748b;
-            --accent: #2563eb;
-        }
+---
 
-        body {
-            background-color: var(--bg);
-            color: var(--text-main);
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            height: 100vh;
-            overflow: hidden;
-            transition: all 0.3s ease;
-        }
+🚀 FINAL BACKEND STRUCTURE
 
-        /* Structured Layout */
-        .app-grid {
-            display: grid;
-            grid-template-columns: 1fr 400px;
-            height: 100vh;
-        }
+automation-backend/
+│
+├── config/
+│   └── WebSocketConfig.java
+│
+├── controller/
+│   ├── ChatController.java
+│   └── ExecutionController.java
+│
+├── service/
+│   └── RobotService.java
+│
+├── model/
+│   └── ExecutionStatus.java
+│
+└── AutomationApplication.java
 
-        .main-pane {
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            overflow-y: auto;
-        }
 
-        /* The "Image Style" Tile */
-        .tile {
-            background: var(--tile);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.25rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
+---
 
-        /* Progress Bar Containment */
-        .bar-rail {
-            width: 100%;
-            height: 12px;
-            background: rgba(0,0,0,0.2);
-            border-radius: 99px;
-            overflow: hidden;
-            border: 1px solid var(--border);
-        }
-        [data-theme='light'] .bar-rail { background: #e2e8f0; }
+🧠 1. MAIN APPLICATION
 
-        .bar-fill {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg, #3b82f6, #60a5fa);
-            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
-            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+@SpringBootApplication
+public class AutomationApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(AutomationApplication.class, args);
+    }
+}
 
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 
-        /* Theme Toggle UI */
-        .toggle-track {
-            width: 50px; height: 26px;
-            background: #374151;
-            border-radius: 20px;
-            position: relative;
-            cursor: pointer;
-            border: 1px solid var(--border);
-        }
-        .toggle-thumb {
-            position: absolute; top: 3px; left: 3px;
-            width: 18px; height: 18px; background: #fff;
-            border-radius: 50%; transition: 0.3s;
-        }
-        [data-theme='light'] .toggle-track { background: #cbd5e1; }
-        [data-theme='light'] .toggle-thumb { transform: translateX(24px); background: #1e293b; }
+---
 
-        .orb {
-            width: 14px; height: 14px;
-            background: #3b82f6;
-            border-radius: 50%;
-            filter: blur(2px);
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse { 0% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.2); } 100% { opacity: 0.5; transform: scale(1); } }
-    </style>
-</head>
-<body data-theme="dark">
+⚙️ 2. WebSocketConfig.java
 
-<div class="app-grid">
-    <div class="main-pane">
-        <header class="flex justify-between items-center mb-2">
-            <div>
-                <h1 class="text-2xl font-black tracking-tight uppercase">Nexus <span class="text-blue-500">AI</span></h1>
-                <p class="text-[10px] font-bold opacity-50 tracking-[2px] uppercase">Control Dashboard v2.0</p>
-            </div>
-            <div class="toggle-track" onclick="toggleTheme()">
-                <div class="toggle-thumb"></div>
-            </div>
-        </header>
+package config;
 
-        <div class="grid grid-cols-4 gap-4">
-            <div class="tile flex flex-col items-center justify-center border-b-4 border-blue-500">
-                <span class="text-[10px] font-bold opacity-40 uppercase">Total Runs</span>
-                <span id="stat-total" class="text-3xl font-extrabold">0</span>
-            </div>
-            <div class="tile flex flex-col items-center justify-center border-b-4 border-emerald-500">
-                <span class="text-[10px] font-bold opacity-40 uppercase text-emerald-500">Passed</span>
-                <span id="stat-passed" class="text-3xl font-extrabold text-emerald-500">0</span>
-            </div>
-            <div class="tile flex flex-col items-center justify-center border-b-4 border-rose-500">
-                <span class="text-[10px] font-bold opacity-40 uppercase text-rose-500">Failed</span>
-                <span id="stat-failed" class="text-3xl font-extrabold text-rose-500">0</span>
-            </div>
-            <div class="tile flex flex-col items-center justify-center border-b-4 border-amber-500">
-                <span class="text-[10px] font-bold opacity-40 uppercase text-amber-500">Skipped</span>
-                <span id="stat-skipped" class="text-3xl font-extrabold text-amber-500">0</span>
-            </div>
-        </div>
+import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.web.socket.config.annotation.*;
 
-        <div class="grid grid-cols-2 gap-4">
-            <div class="tile flex flex-col justify-between min-h-[220px]">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h4 class="text-xs font-bold opacity-40 uppercase tracking-widest">Live Execution</h4>
-                        <p id="active-suite-name" class="text-xl font-bold mt-1">Awaiting Trigger...</p>
-                    </div>
-                    <span id="run-badge" class="bg-slate-800 text-[9px] px-2 py-1 rounded-md font-bold text-white">IDLE</span>
-                </div>
-                
-                <div class="space-y-4">
-                    <div class="bar-rail">
-                        <div id="main-p-bar" class="bar-fill"></div>
-                    </div>
-                    <div class="flex justify-between items-center text-[10px] font-mono opacity-50 uppercase">
-                        <span id="status-text">Ready</span>
-                        <span id="percentage-text">0%</span>
-                    </div>
-                </div>
-            </div>
+@Configuration
+@EnableWebSocketMessageBroker
+public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-            <div class="tile flex flex-col items-center">
-                <h4 class="text-xs font-bold opacity-40 uppercase tracking-widest self-start mb-4">Historical Success</h4>
-                <div class="h-32 w-full flex items-center justify-center">
-                    <canvas id="historyChart"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <div class="tile flex-1 p-0 overflow-hidden flex flex-col">
-            <div class="p-3 bg-black/20 border-b border-white/5 flex items-center gap-2">
-                <i class="fas fa-file-alt text-xs opacity-40"></i>
-                <span class="text-[10px] font-bold opacity-60 uppercase">Interactive Log Report</span>
-            </div>
-            <iframe id="report-frame" src="about:blank" class="flex-1 w-full bg-slate-900 border-none"></iframe>
-        </div>
-    </div>
-
-    <aside class="bg-black/20 border-l border-white/5 p-6 flex flex-col gap-6">
-        <div class="flex items-center gap-3">
-            <div class="orb"></div>
-            <span class="text-sm font-bold uppercase tracking-widest">Command Center</span>
-        </div>
-
-        <div class="tile space-y-5 bg-white/5">
-            <h4 class="text-[10px] font-bold opacity-40 uppercase">Run Parameters</h4>
-            
-            <div class="space-y-4">
-                <div class="space-y-2">
-                    <label class="text-[10px] font-bold opacity-50 uppercase ml-1">Region</label>
-                    <select id="sel-region" class="w-full bg-slate-800 border border-white/10 p-3 rounded-xl text-xs outline-none focus:border-blue-500">
-                        <option value="US">North America (US)</option>
-                        <option value="EU">Europe (EU)</option>
-                        <option value="APAC">Asia Pacific (APAC)</option>
-                    </select>
-                </div>
-                <div class="space-y-2">
-                    <label class="text-[10px] font-bold opacity-50 uppercase ml-1">Environment</label>
-                    <select id="sel-env" class="w-full bg-slate-800 border border-white/10 p-3 rounded-xl text-xs outline-none focus:border-blue-500">
-                        <option value="DEV">Development (DEV)</option>
-                        <option value="PROD">Production (PROD)</option>
-                    </select>
-                </div>
-                <button onclick="runSuite()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 transition-all active:scale-95">
-                    Start Execution
-                </button>
-            </div>
-        </div>
-
-        <div class="tile flex-1 flex flex-col bg-black/40 p-0 overflow-hidden border-dashed">
-            <div class="p-3 border-b border-white/5 bg-white/5 text-[9px] font-bold opacity-40 uppercase">System Output</div>
-            <div id="log-container" class="p-4 flex-1 font-mono text-[10px] space-y-2 overflow-y-auto text-blue-300">
-                <p>> System standby...</p>
-            </div>
-        </div>
-    </aside>
-</div>
-
-<script>
-    let historyChart;
-
-    function toggleTheme() {
-        const current = document.body.getAttribute('data-theme');
-        document.body.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
+    @Override
+    public void configureMessageBroker(MessageBrokerRegistry config) {
+        config.enableSimpleBroker("/topic"); // UI subscribes here
+        config.setApplicationDestinationPrefixes("/app");
     }
 
-    function addLog(msg, isError = false) {
-        const container = document.getElementById('log-container');
-        const p = document.createElement('p');
-        p.className = isError ? "text-rose-400" : "text-blue-300";
-        p.innerText = `[${new Date().toLocaleTimeString()}] > ${msg}`;
-        container.prepend(p);
+    @Override
+    public void registerStompEndpoints(StompEndpointRegistry registry) {
+        registry.addEndpoint("/ws")
+                .setAllowedOrigins("*")
+                .withSockJS();
     }
+}
 
-    // --- RESET AND EXECUTE ---
-    async function runSuite() {
-        // 1. Instant Zero Reset
-        document.getElementById('stat-total').innerText = "0";
-        document.getElementById('stat-passed').innerText = "0";
-        document.getElementById('stat-failed').innerText = "0";
-        document.getElementById('stat-skipped').innerText = "0";
-        document.getElementById('main-p-bar').style.width = "0%";
-        document.getElementById('percentage-text').innerText = "0%";
-        
-        historyChart.data.datasets[0].data = [0, 0, 0];
-        historyChart.update();
 
-        const region = document.getElementById('sel-region').value;
-        const env = document.getElementById('sel-env').value;
-        addLog(`Connecting to ${region} ${env} environment...`);
+---
+
+📦 3. ExecutionStatus.java (MODEL)
+
+package model;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class ExecutionStatus {
+
+    private String status;   // running / completed
+    private int total;
+    private int passed;
+    private int failed;
+    private int skipped;
+}
+
+
+---
+
+🤖 4. RobotService.java (CORE LOGIC)
+
+package service;
+
+import lombok.RequiredArgsConstructor;
+import model.ExecutionStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Service;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
+@Service
+@RequiredArgsConstructor
+public class RobotService {
+
+    private final SimpMessagingTemplate template;
+
+    public void execute(String region, String env, String type) {
 
         try {
-            const res = await fetch('/chat', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ message: `Run Sanity for ${region} ${env}` })
-            });
-            const data = await res.json();
-            if(data.type === 'success') beginPolling(data.test_type);
-        } catch (e) {
-            addLog("Error: Backend communication failed.", true);
+            template.convertAndSend("/topic/logs",
+                    "🚀 Starting execution for " + region + " " + env);
+
+            ProcessBuilder pb = new ProcessBuilder(
+                    "robot",
+                    "-d", "results",
+                    "-v", "REGION:" + region,
+                    "-v", "ENV:" + env,
+                    "tests/" + type + ".robot"
+            );
+
+            Process process = pb.start();
+
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream())
+            );
+
+            String line;
+            int passed = 0, failed = 0;
+
+            while ((line = reader.readLine()) != null) {
+
+                // 🔥 Send log to UI
+                template.convertAndSend("/topic/logs", line);
+
+                if (line.contains("PASS")) passed++;
+                if (line.contains("FAIL")) failed++;
+
+                // 🔥 Send live status
+                template.convertAndSend("/topic/status",
+                        new ExecutionStatus(
+                                "running",
+                                passed + failed,
+                                passed,
+                                failed,
+                                0
+                        )
+                );
+            }
+
+            process.waitFor();
+
+            // ✅ Final update
+            template.convertAndSend("/topic/status",
+                    new ExecutionStatus(
+                            "completed",
+                            passed + failed,
+                            passed,
+                            failed,
+                            0
+                    )
+            );
+
+            template.convertAndSend("/topic/logs", "✅ Execution Completed");
+
+        } catch (Exception e) {
+            template.convertAndSend("/topic/logs",
+                    "❌ Error: " + e.getMessage());
         }
     }
+}
 
-    function beginPolling(type) {
-        document.getElementById('active-suite-name').innerText = type.toUpperCase() + " RUN";
-        const badge = document.getElementById('run-badge');
-        badge.innerText = "RUNNING";
-        badge.className = "bg-emerald-600 text-[9px] px-2 py-1 rounded-md font-bold text-white animate-pulse";
 
-        let prog = 0;
-        const bar = document.getElementById('main-p-bar');
+---
 
-        const timer = setInterval(async () => {
-            const res = await fetch('/status');
-            const data = await res.json();
-            
-            if (data.status === 'running') {
-                if (prog < 90) prog += 7;
-                bar.style.width = prog + "%";
-                document.getElementById('percentage-text').innerText = prog + "%";
-                document.getElementById('status-text').innerText = "Executing Robot Script...";
-            } else if (data.status === 'completed') {
-                clearInterval(timer);
-                bar.style.width = "100%";
-                document.getElementById('percentage-text').innerText = "100%";
-                finalizeUI(data);
-            }
-        }, 1200);
+🎯 5. ExecutionController.java
+
+package controller;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+import service.RobotService;
+
+import java.util.Map;
+
+@RestController
+@RequiredArgsConstructor
+@CrossOrigin("*")
+public class ExecutionController {
+
+    private final RobotService robotService;
+
+    @PostMapping("/run")
+    public String run(@RequestBody Map<String, String> req) {
+
+        new Thread(() ->
+                robotService.execute(
+                        req.get("region"),
+                        req.get("env"),
+                        req.get("type")
+                )
+        ).start();
+
+        return "Execution Started";
     }
+}
 
-    function finalizeUI(data) {
-        document.getElementById('stat-total').innerText = data.total;
-        document.getElementById('stat-passed').innerText = data.passed;
-        document.getElementById('stat-failed').innerText = data.failed;
-        document.getElementById('stat-skipped').innerText = data.skipped;
-        
-        const badge = document.getElementById('run-badge');
-        badge.innerText = "FINISHED";
-        badge.className = "bg-blue-600 text-[9px] px-2 py-1 rounded-md font-bold text-white";
-        document.getElementById('status-text').innerText = "Task Complete";
-        document.getElementById('report-frame').src = "/results/report.html";
 
-        historyChart.data.datasets[0].data = [data.passed, data.failed, data.skipped];
-        historyChart.update();
-        addLog(`Run Finished. Result: ${data.passed}P / ${data.failed}F`);
+---
+
+🧠 6. ChatController.java (OPTIONAL AI ENTRY)
+
+package controller;
+
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@CrossOrigin("*")
+public class ChatController {
+
+    @PostMapping("/chat")
+    public Map<String, String> chat(@RequestBody Map<String, String> req) {
+
+        String msg = req.get("message").toLowerCase();
+
+        String type = "sanity";
+
+        if (msg.contains("regression")) {
+            type = "regression";
+        }
+
+        return Map.of(
+                "type", "success",
+                "test_type", type
+        );
     }
+}
 
-    window.onload = () => {
-        const ctx = document.getElementById('historyChart').getContext('2d');
-        historyChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Pass', 'Fail', 'Skip'],
-                datasets: [{
-                    data: [0, 0, 0],
-                    backgroundColor: ['#10b981', '#f43f5e', '#f59e0b'],
-                    borderWidth: 0
-                }]
-            },
-            options: { 
-                cutout: '80%', 
-                plugins: { legend: { display: false } },
-                maintainAspectRatio: false
-            }
-        });
-    };
-</script>
-</body>
-</html>
+
+---
+
+⚙️ 7. application.properties
+
+server.port=8080
+
+spring.mvc.pathmatch.matching-strategy=ant_path_matcher
+
+
+---
+
+📁 8. ROBOT FILES
+
+tests/
+   sanity.robot
+   regression.robot
+
+results/
+
+
+---
+
+🧪 SAMPLE ROBOT FILE
+
+*** Variables ***
+${REGION}
+${ENV}
+
+*** Test Cases ***
+Login Test
+    Log    Running in ${REGION} ${ENV}
+    Sleep  1s
+    Log    PASS
+
+Search Test
+    Sleep  1s
+    Log    FAIL
+
+
+---
+
+🔌 FRONTEND CONNECTION SUMMARY
+
+Your UI will:
+
+1. Connect WebSocket
+
+/ws
+
+2. Listen:
+
+/topic/logs
+/topic/status
+
+3. Trigger execution:
+
+POST /run
+{
+  "region": "US",
+  "env": "DEV",
+  "type": "sanity"
+}
+
+
+---
+
+
+
+---
+
+🚀 NEXT LEVEL (HIGHLY RECOMMENDED)
+
