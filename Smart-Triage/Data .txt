@@ -1,140 +1,555 @@
-<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/stompjs/lib/stomp.min.js"></script>
+import os
+import subprocess
+import threading
+import xml.etree.ElementTree as ET
+import zipfile
+import io
+from flask import Flask, request, jsonify, send_from_directory, send_file
+
+app = Flask(__name__, static_folder='public')
+
+# Global state to track test progress
+execution_state = {
+    "status": "idle",
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "test_type": "None"
+}
+
+
+def run_robot_tests(test_type, region, env):
+    """Executes the Robot Framework command and parses results."""
+    global execution_state
+    execution_state = {
+        "status": "running",
+        "total": 0, "passed": 0, "failed": 0, "skipped": 0,
+        "test_type": test_type
+    }
+
+    base_path = os.path.abspath(os.path.dirname(__file__))
+    results_dir = os.path.join(base_path, "results")
+    tests_dir = os.path.join(base_path, "tests")
+
+    # Ensure results directory exists
+    os.makedirs(results_dir, exist_ok=True)
+
+    # Robot Command: Includes variables passed from the UI
+    cmd = [
+        "python", "-m", "robot",
+        "--outputdir", results_dir,
+        "--variable", f"REGION:{region}",
+        "--variable", f"ENV:{env}",
+        "--include", test_type.lower(),
+        tests_dir
+    ]
+
+    try:
+        # Run the process
+        subprocess.run(cmd, capture_output=True, text=True)
+
+        # Parse output.xml to get live stats
+        output_xml = os.path.join(results_dir, "output.xml")
+        if os.path.exists(output_xml):
+            tree = ET.parse(output_xml)
+            root = tree.getroot()
+            for stat in root.findall(".//statistics/total/stat"):
+                if stat.text == 'All Tests':
+                    execution_state.update({
+                        "passed": int(stat.get('pass', 0)),
+                        "failed": int(stat.get('fail', 0)),
+                        "skipped": int(stat.get('skip', 0)),
+                        "total": int(stat.get('pass', 0)) + int(stat.get('fail', 0)) + int(stat.get('skip', 0))
+                    })
+                    break
+    except Exception as e:
+        print(f"Execution Error: {e}")
+
+    execution_state["status"] = "completed"
+
+
+# --- ROUTES ---
+
+@app.route('/')
+def index():
+    return send_from_directory('public', 'index.html')
+
+
+@app.route('/chat', methods=['POST'])
+def handle_chat():
+    """Simple NLU to extract test parameters from user message."""
+    user_text = request.json.get("message", "").lower()
+
+    # Logic to identify intent
+    test_type = next((t for t in ["sanity", "regression", "smoke"] if t in user_text), "sanity")
+    region = next((r for r in ["us", "eu", "apac"] if r in user_text), "us")
+    env = next((e for e in ["dev", "prod", "int", "stage"] if e in user_text), "dev")
+
+    return jsonify({
+        "type": "confirmation",
+        "message": f"I've prepared a **{test_type.upper()}** run for **{region.upper()}** on **{env.upper()}**. Proceed?",
+        "params": {
+            "test_type": test_type.capitalize(),
+            "region": region.upper(),
+            "env": env.upper()
+        }
+    })
+
+
+@app.route('/confirm_run', methods=['POST'])
+def confirm_run():
+    """Starts the test execution in a background thread."""
+    params = request.json.get("params")
+    thread = threading.Thread(
+        target=run_robot_tests,
+        args=(params['test_type'], params['region'], params['env'])
+    )
+    thread.start()
+    return jsonify({"status": "started"})
+
+
+@app.route('/status')
+def get_status():
+    """Polled by UI to update progress bars and stats."""
+    return jsonify(execution_state)
+
+
+@app.route('/results/<path:filename>')
+def serve_results(filename):
+    """Serves report.html and log.html from the results folder."""
+    return send_from_directory('results', filename)
+
+
+@app.route('/download_results')
+def download_results():
+    """Zips the entire results folder for the user."""
+    base_path = os.path.abspath(os.path.dirname(__file__))
+    results_dir = os.path.join(base_path, "results")
+
+    memory_file = io.BytesIO()
+    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for root, _, files in os.walk(results_dir):
+            for file in files:
+                zf.write(os.path.join(root, file), file)
+
+    memory_file.seek(0)
+    return send_file(
+        memory_file,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f"Execution_Report_{execution_state['test_type']}.zip"
+    )
+
+
+@app.route('/raise_bug', methods=['POST'])
+def raise_bug():
+    """Simulates Jira Defect Creation."""
+    data = request.json
+    # In a real app, you would use 'requests' to POST to Jira's API here
+    bug_id = "NEX-" + str(os.urandom(2).hex().upper())
+
+    return jsonify({
+        "status": "success",
+        "bug_id": bug_id,
+        "summary": data.get('title'),
+        "attachments": ["report.html", "log.html", "screenshot.png"]
+    })
+
+
+if __name__ == '__main__':
+    # Ensure the results folder exists on startup
+    if not os.path.exists('results'):
+        os.makedirs('results')
+    app.run(port=8000, debug=True)
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus AI Automation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"/>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap');
+        :root { --bg: #030712; --tile: #111827; --border: rgba(255, 255, 255, 0.08); --text-main: #f9fafb; --accent: #3b82f6; }
+        [data-theme='light'] { --bg: #f1f5f9; --tile: #ffffff; --border: rgba(15, 23, 42, 0.08); --text-main: #0f172a; --accent: #2563eb; }
+        body { background-color: var(--bg); color: var(--text-main); font-family: 'Plus Jakarta Sans', sans-serif; height: 100vh; overflow: hidden; transition: all 0.3s ease; }
+        .app-grid { display: grid; grid-template-columns: 1fr 400px; height: 100vh; }
+        .main-pane { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; }
+        .tile { background: var(--tile); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .bar-rail { width: 100%; height: 12px; background: rgba(0,0,0,0.2); border-radius: 99px; overflow: hidden; border: 1px solid var(--border); }
+        .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #60a5fa); transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+        .toggle-track { width: 50px; height: 26px; background: #374151; border-radius: 20px; position: relative; cursor: pointer; border: 1px solid var(--border); }
+        .toggle-thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: #fff; border-radius: 50%; transition: 0.3s; }
+        [data-theme='light'] .toggle-track { background: #cbd5e1; }
+        [data-theme='light'] .toggle-thumb { transform: translateX(24px); background: #1e293b; }
+        .orb { width: 14px; height: 14px; background: #3b82f6; border-radius: 50%; filter: blur(2px); animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.2); } }
+        #chat-window::-webkit-scrollbar { width: 4px; }
+        #chat-window::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        .glass-card { backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body data-theme="dark">
+
+<div class="app-grid">
+    <div class="main-pane">
+        <header class="flex justify-between items-center mb-2">
+            <div>
+                <p class="text-[10px] font-bold opacity-50 tracking-[2px] uppercase">Nexus AI Dashboard</p>
+            </div>
+            <div class="toggle-track" onclick="toggleTheme()">
+                <div class="toggle-thumb"></div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-4 gap-4">
+            <div class="tile flex flex-col items-center justify-center border-b-4 border-blue-500">
+                <span class="text-[10px] font-bold opacity-40 uppercase">Total Runs</span>
+                <span id="stat-total" class="text-3xl font-extrabold">0</span>
+            </div>
+            <div class="tile flex flex-col items-center justify-center border-b-4 border-emerald-500">
+                <span class="text-[10px] font-bold opacity-40 uppercase text-emerald-500">Passed</span>
+                <span id="stat-passed" class="text-3xl font-extrabold text-emerald-500">0</span>
+            </div>
+            <div class="tile flex flex-col items-center justify-center border-b-4 border-rose-500">
+                <span class="text-[10px] font-bold opacity-40 uppercase text-rose-500">Failed</span>
+                <span id="stat-failed" class="text-3xl font-extrabold text-rose-500">0</span>
+            </div>
+            <div class="tile flex flex-col items-center justify-center border-b-4 border-amber-500">
+                <span class="text-[10px] font-bold opacity-40 uppercase text-amber-500">Skipped</span>
+                <span id="stat-skipped" class="text-3xl font-extrabold text-amber-500">0</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div class="tile flex flex-col justify-between min-h-[220px]">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h4 class="text-xs font-bold opacity-40 uppercase tracking-widest">Live Execution</h4>
+                        <p id="active-suite-name" class="text-xl font-bold mt-1">Awaiting Command...</p>
+                    </div>
+
+                </div>
+                <div class="space-y-4">
+                    <div class="bar-rail"><div id="main-p-bar" class="bar-fill"></div></div>
+                    <div class="flex justify-between items-center text-[10px] font-mono opacity-50 uppercase">
+                        <span id="status-text">Ready</span>
+                        <span id="percentage-text">0%</span>
+                    </div>
+                </div>
+
+                 <div class="flex flex-col items-end gap-2">
+                        <span id="run-badge" class="bg-slate-800 text-[9px] px-2 py-1 rounded-md font-bold text-white uppercase tracking-tighter">Idle</span>
+                        <button id="download-btn" onclick="downloadResults()" class="hidden text-[10px] bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded uppercase font-bold hover:bg-blue-600 hover:text-white transition">
+                            <i class="fas fa-download mr-1"></i> Download ZIP
+                        </button>
+                    </div>
+            </div>
+            <div class="tile flex flex-col items-center">
+                <h4 class="text-xs font-bold opacity-40 uppercase tracking-widest self-start mb-4">Current Distribution</h4>
+                <div class="h-32 w-full flex items-center justify-center"><canvas id="historyChart"></canvas></div>
+            </div>
+        </div>
+
+        <div class="tile flex-1 p-0 overflow-hidden flex flex-col">
+            <div class="p-3 bg-black/20 border-b border-white/5 flex items-center gap-2">
+                <i class="fas fa-file-alt text-xs opacity-40"></i>
+                <span class="text-[10px] font-bold opacity-60 uppercase">Interactive Log Report</span>
+            </div>
+            <iframe id="report-frame" src="about:blank" class="flex-1 w-full bg-slate-900 border-none"></iframe>
+        </div>
+    </div>
+
+    <aside class="bg-black/20 border-l border-white/5 p-6 flex flex-col gap-6">
+        <div class="flex items-center gap-3"><div class="orb"></div><span class="text-sm font-bold uppercase tracking-widest text-blue-400">AI Agent</span></div>
+
+        <div class="tile flex-[2] flex flex-col bg-white/5 border-blue-500/30 overflow-hidden">
+            <div id="chat-window" class="flex-1 overflow-y-auto space-y-4 pr-2 text-xs mb-4">
+                <div class="bg-blue-600/10 p-3 rounded-lg border border-blue-500/20">
+                    Hello! I am Test AI. Ask me to run tests, e.g.:<br>
+                    <i class="text-blue-400 italic">"Run sanity for APAC Prod"</i>
+                </div>
+            </div>
+
+            <div id="confirm-box" class="hidden p-3 bg-blue-900/30 border border-blue-500/50 rounded-xl mb-4 space-y-3">
+                <p id="confirm-msg" class="text-[11px] font-semibold"></p>
+                <div class="flex gap-2">
+                    <button onclick="finalConfirm(true)" class="flex-1 bg-blue-600 py-2 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-500 transition">Confirm</button>
+                    <button onclick="finalConfirm(false)" class="flex-1 bg-slate-700 py-2 rounded-lg text-[10px] font-bold uppercase hover:bg-slate-600 transition">Cancel</button>
+                </div>
+            </div>
+
+            <div id="bug-box" class="hidden p-3 bg-rose-900/30 border border-rose-500/50 rounded-xl mb-4">
+                <p class="text-[11px] mb-2 font-bold text-rose-300">Failures detected in suite!</p>
+                <button onclick="openBugModal()" class="w-full bg-rose-600 hover:bg-rose-500 py-2 rounded-lg text-[10px] font-bold uppercase transition-colors">Raise Bug in Jira</button>
+            </div>
+
+            <div class="relative mt-auto">
+                <input id="chat-input" type="text" placeholder="Type a command..." class="w-full bg-slate-900 border border-white/10 p-3 pr-10 rounded-xl text-xs outline-none focus:border-blue-500 transition-all">
+                <button onclick="sendChat()" class="absolute right-3 top-3 text-blue-500 hover:text-white"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+
+        <div class="tile flex-1 flex flex-col bg-black/40 p-0 overflow-hidden border-dashed">
+            <div class="p-3 border-b border-white/5 bg-white/5 text-[9px] font-bold opacity-40 uppercase">System Stream</div>
+            <div id="log-container" class="p-4 flex-1 font-mono text-[10px] space-y-2 overflow-y-auto text-blue-300">
+                <p>> System standby...</p>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<div id="bug-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="glass-card w-full max-w-md bg-[#1e293b] border border-blue-500/30 shadow-2xl p-6 rounded-2xl">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-lg font-bold text-white uppercase tracking-tighter">Create Jira Defect</h3>
+            <button onclick="closeBugModal()" class="text-slate-400 hover:text-white transition"><i class="fas fa-times text-xl"></i></button>
+        </div>
+
+        <div class="space-y-4">
+            <div>
+                <label class="text-[10px] font-bold opacity-50 uppercase ml-1">Bug Title</label>
+                <input id="bug-title" type="text" class="w-full bg-slate-900 border border-white/10 p-3 rounded-xl text-xs outline-none focus:border-blue-500 text-white">
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-bold opacity-50 uppercase ml-1">Epic / Parent ID</label>
+                    <input id="bug-epic" type="text" placeholder="NEX-123" class="w-full bg-slate-900 border border-white/10 p-3 rounded-xl text-xs outline-none focus:border-blue-500 text-white">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold opacity-50 uppercase ml-1">Priority</label>
+                    <select id="bug-priority" class="w-full bg-slate-900 border border-white/10 p-3 rounded-xl text-xs outline-none focus:border-blue-500 text-white">
+                        <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="text-[10px] font-bold opacity-50 uppercase ml-1">Description</label>
+                <textarea id="bug-desc" rows="4" class="w-full bg-slate-900 border border-white/10 p-3 rounded-xl text-xs outline-none focus:border-blue-500 text-white"></textarea>
+            </div>
+
+            <div class="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                <p class="text-[10px] text-blue-400 font-bold uppercase"><i class="fas fa-paperclip mr-2"></i> Auto-Attach Active:</p>
+                <p class="text-[9px] opacity-60">Robot_Report.zip (Report, Log, Screenshots)</p>
+            </div>
+
+            <button onclick="submitBugToJira()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl text-xs uppercase tracking-widest transition-all">
+                Push to Jira
+            </button>
+        </div>
+    </div>
+</div>
 
 <script>
-let historyChart;
-let stompClient = null;
+    let historyChart;
+    let pendingParams = null;
 
-// 🔌 CONNECT WEBSOCKET
-function connectSocket() {
-    const socket = new SockJS("http://localhost:8080/ws");
-    stompClient = Stomp.over(socket);
-
-    stompClient.connect({}, function () {
-        addLog("Connected to backend");
-
-        // 🔥 LOG STREAM
-        stompClient.subscribe("/topic/logs", function (msg) {
-            addLog(msg.body);
-        });
-
-        // 🔥 STATUS STREAM
-        stompClient.subscribe("/topic/status", function (msg) {
-            const data = JSON.parse(msg.body);
-            updateUI(data);
-        });
-    });
-}
-
-// 🧠 UPDATE UI FROM BACKEND
-function updateUI(data) {
-    document.getElementById('stat-total').innerText = data.total;
-    document.getElementById('stat-passed').innerText = data.passed;
-    document.getElementById('stat-failed').innerText = data.failed;
-    document.getElementById('stat-skipped').innerText = data.skipped;
-
-    // Progress calculation
-    let percent = data.total === 0 ? 0 : Math.floor((data.passed + data.failed) / data.total * 100);
-    document.getElementById('main-p-bar').style.width = percent + "%";
-    document.getElementById('percentage-text').innerText = percent + "%";
-
-    if (data.status === "running") {
-        document.getElementById('status-text').innerText = "Executing...";
+    function toggleTheme() {
+        const current = document.body.getAttribute('data-theme');
+        document.body.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
     }
 
-    if (data.status === "completed") {
-        finalizeUI(data);
+    function addLog(msg, isError = false) {
+        const container = document.getElementById('log-container');
+        const p = document.createElement('p');
+        p.className = isError ? "text-rose-400" : "text-blue-300";
+        p.innerText = `[${new Date().toLocaleTimeString()}] > ${msg}`;
+        container.prepend(p);
     }
-}
 
-// 🚀 RUN TEST (CONNECTED TO SPRING BOOT)
-async function runSuite() {
+    function appendChat(sender, text) {
+        const win = document.getElementById('chat-window');
+        const div = document.createElement('div');
+        div.className = sender === "User" ? "text-right" : "text-left";
+        div.innerHTML = `<span class="opacity-40 text-[9px] uppercase font-bold">${sender}</span>
+                         <div class="mt-1 p-2 rounded-lg ${sender==='User'?'bg-slate-700':'bg-blue-600/20 border border-blue-500/20'}">${text}</div>`;
+        win.appendChild(div);
+        win.scrollTop = win.scrollHeight;
+    }
 
-    // Reset UI
-    document.getElementById('log-container').innerHTML = "";
-    updateUI({ total: 0, passed: 0, failed: 0, skipped: 0 });
+    async function sendChat() {
+        const input = document.getElementById('chat-input');
+        const msg = input.value; if(!msg) return;
+        appendChat("User", msg);
+        input.value = "";
 
-    const region = document.getElementById('sel-region').value;
-    const env = document.getElementById('sel-env').value;
+        try {
+            const res = await fetch('/chat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ message: msg })
+            });
+            const data = await res.json();
+            if(data.type === 'confirmation') {
+                pendingParams = data.params;
+                document.getElementById('confirm-msg').innerHTML = data.message;
+                document.getElementById('confirm-box').classList.remove('hidden');
+            }
+        } catch (e) { addLog("Chat connection failed.", true); }
+    }
 
-    const type = "sanity"; // or dynamic later
+    async function finalConfirm(choice) {
+        document.getElementById('confirm-box').classList.add('hidden');
+        if(!choice) { appendChat("AI Agent", "Request cancelled."); return; }
 
-    document.getElementById('active-suite-name').innerText = type.toUpperCase();
-    
-    const badge = document.getElementById('run-badge');
-    badge.innerText = "RUNNING";
-    badge.className = "bg-emerald-600 text-[9px] px-2 py-1 rounded-md font-bold text-white animate-pulse";
+        appendChat("AI Agent", "Processing... Robot engine active.");
+        await fetch('/confirm_run', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ params: pendingParams })
+        });
 
-    addLog(`Starting execution: ${region} ${env}`);
+        document.getElementById('stat-total').innerText = "0";
+        document.getElementById('report-frame').src = "about:blank";
+        document.getElementById('bug-box').classList.add('hidden');
+        document.getElementById('download-btn').classList.add('hidden');
 
-    // 🔥 CALL BACKEND
-    await fetch("http://localhost:8080/run", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            region: region,
-            env: env,
-            type: type
-        })
-    });
-}
+        beginPolling(pendingParams.test_type);
+    }
 
-// ✅ FINAL UI STATE
-function finalizeUI(data) {
-    const badge = document.getElementById('run-badge');
-    badge.innerText = "FINISHED";
-    badge.className = "bg-blue-600 text-[9px] px-2 py-1 rounded-md font-bold text-white";
+    function beginPolling(type) {
+        document.getElementById('active-suite-name').innerText = type.toUpperCase() + " RUN";
+        const badge = document.getElementById('run-badge');
+        badge.innerText = "Running";
+        badge.className = "bg-emerald-600 text-[9px] px-2 py-1 rounded-md font-bold text-white animate-pulse uppercase";
 
-    document.getElementById('status-text').innerText = "Completed";
+        let prog = 0;
+        const timer = setInterval(async () => {
+            try {
+                const res = await fetch('/status');
+                const data = await res.json();
+                if (data.status === 'running') {
+                    if (prog < 95) prog += 5;
+                    document.getElementById('main-p-bar').style.width = prog + "%";
+                    document.getElementById('percentage-text').innerText = prog + "%";
+                    document.getElementById('status-text').innerText = "Running Tests...";
+                } else if (data.status === 'completed') {
+                    clearInterval(timer);
+                    document.getElementById('main-p-bar').style.width = "100%";
+                    document.getElementById('percentage-text').innerText = "100%";
+                    finalizeUI(data);
+                }
+            } catch(e) { clearInterval(timer); }
+        }, 1500);
+    }
 
-    // Load Robot report
-    document.getElementById('report-frame').src = "http://localhost:8080/results/report.html";
+    function finalizeUI(data) {
+        document.getElementById('stat-total').innerText = data.total;
+        document.getElementById('stat-passed').innerText = data.passed;
+        document.getElementById('stat-failed').innerText = data.failed;
+        document.getElementById('stat-skipped').innerText = data.skipped;
 
-    historyChart.data.datasets[0].data = [data.passed, data.failed, data.skipped];
-    historyChart.update();
+        const badge = document.getElementById('run-badge');
+        badge.innerText = "Complete";
+        badge.className = "bg-blue-600 text-[9px] px-2 py-1 rounded-md font-bold text-white uppercase";
+        document.getElementById('status-text').innerText = "Ready";
 
-    addLog(`Execution Completed ✅`);
-}
+        // Show download button
+        document.getElementById('download-btn').classList.remove('hidden');
+        document.getElementById('report-frame').src = "/results/report.html";
 
-// 🧾 LOG UI
-function addLog(msg, isError = false) {
-    const container = document.getElementById('log-container');
+        historyChart.data.datasets[0].data = [data.passed, data.failed, data.skipped];
+        historyChart.update();
 
-    const p = document.createElement('p');
-    p.className = isError ? "text-rose-400" : "text-blue-300";
-    p.innerText = `[${new Date().toLocaleTimeString()}] > ${msg}`;
+        addLog(`Execution Finished: ${data.passed}P / ${data.failed}F.`);
+        appendChat("AI Agent", `Execution finished. Results: ${data.passed} Passed, ${data.failed} Failed.`);
 
-    container.prepend(p);
-}
+        if(data.failed > 0) document.getElementById('bug-box').classList.remove('hidden');
+    }
 
-// 🌗 THEME
-function toggleTheme() {
-    const current = document.body.getAttribute('data-theme');
-    document.body.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
-}
+    function openBugModal() {
+        document.getElementById('bug-modal').classList.remove('hidden');
+        const suite = document.getElementById('active-suite-name').innerText;
+        document.getElementById('bug-title').value = `Bug: ${suite} failed in ${pendingParams.env}`;
+        document.getElementById('bug-desc').value = `Summary: Detected ${document.getElementById('stat-failed').innerText} failures.\n\nContext:\nRegion: ${pendingParams.region}\nEnv: ${pendingParams.env}\nTime: ${new Date().toLocaleString()}`;
+    }
 
-// 📊 CHART INIT
-window.onload = () => {
-    connectSocket(); // 🔥 IMPORTANT
+    function closeBugModal() { document.getElementById('bug-modal').classList.add('hidden'); }
 
-    const ctx = document.getElementById('historyChart').getContext('2d');
-    historyChart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: ['Pass', 'Fail', 'Skip'],
-            datasets: [{
-                data: [0, 0, 0],
-                backgroundColor: ['#10b981', '#f43f5e', '#f59e0b'],
-                borderWidth: 0
-            }]
-        },
-        options: { 
-            cutout: '80%', 
-            plugins: { legend: { display: false } },
-            maintainAspectRatio: false
+    async function submitBugToJira() {
+        const payload = {
+            title: document.getElementById('bug-title').value,
+            parent_id: document.getElementById('bug-epic').value,
+            priority: document.getElementById('bug-priority').value,
+            description: document.getElementById('bug-desc').value
+        };
+
+        if(!payload.title || !payload.parent_id) {
+            alert("Title and Parent ID are required.");
+            return;
         }
-    });
-};
+
+        try {
+            const res = await fetch('/raise_bug', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+
+            closeBugModal();
+            document.getElementById('bug-box').classList.add('hidden');
+            appendChat("AI Agent", `✅ **Bug ${data.bug_id} Created!** Linked to ${payload.parent_id}. Files attached.`);
+            addLog(`Bug ${data.bug_id} logged to Jira.`);
+        } catch (e) { addLog("Jira Error: Failed to push data.", true); }
+    }
+
+    function downloadResults() {
+        addLog("Preparing results ZIP package...");
+        window.location.href = '/download_results';
+    }
+
+    document.getElementById('chat-input').addEventListener('keypress', e => { if(e.key === 'Enter') sendChat(); });
+
+    window.onload = () => {
+        const ctx = document.getElementById('historyChart').getContext('2d');
+        historyChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: { labels: ['Pass', 'Fail', 'Skip'], datasets: [{ data: [0, 0, 0], backgroundColor: ['#10b981', '#f43f5e', '#f59e0b'], borderWidth: 0 }] },
+            options: { cutout: '80%', plugins: { legend: { display: false } }, maintainAspectRatio: false }
+        });
+    };
 </script>
+</body>
+</html>
+
+
+
+
+
+*** Settings ***
+Documentation    Sample Nexus AI execution suite
+
+*** Variables ***
+${REGION}        US
+${ENV}           DEV
+
+*** Test Cases ***
+Example Sanity Test
+    [Tags]    Sanity
+    Log    Running Sanity in region ${REGION} on ${ENV}
+    Should Be Equal    ${REGION}    ${REGION}
+
+Example Regression Pass
+    [Tags]    Regression
+    Log    This is a passing regression test
+
+Example Regression Fail
+    [Tags]    Regression
+    Fail    This test is intentionally failed to show UI updates
+
+Example Smoke Test
+    [Tags]    Smoke
+    Log    Smoke test initialized.
