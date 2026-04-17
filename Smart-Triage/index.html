@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus AI Automation | Enterprise</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"/>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap');
+        :root { --bg: #030712; --tile: #111827; --border: rgba(255, 255, 255, 0.08); --text-main: #f9fafb; }
+        body { background-color: var(--bg); color: var(--text-main); font-family: 'Plus Jakarta Sans', sans-serif; height: 100vh; overflow: hidden; }
+        .app-grid { display: grid; grid-template-columns: 1fr 450px; height: 100vh; }
+        .main-pane { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; }
+        .tile { background: var(--tile); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }
+        .bar-rail { width: 100%; height: 10px; background: rgba(255,255,255,0.05); border-radius: 99px; overflow: hidden; border: 1px solid var(--border); }
+        .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #60a5fa); transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+        .orb { width: 10px; height: 10px; background: #3b82f6; border-radius: 50%; filter: blur(2px); animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.3); } }
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        .fail-card { background: rgba(244, 63, 94, 0.03); border: 1px solid rgba(244, 63, 94, 0.1); cursor: pointer; transition: 0.2s; }
+        .fail-card:hover { background: rgba(244, 63, 94, 0.08); border-color: #f43f5e; }
+    </style>
+</head>
+<body>
+
+<div class="app-grid">
+    <div class="main-pane">
+        <header class="flex justify-between items-center mb-2">
+            <div class="flex flex-col">
+                <p class="text-[10px] font-bold opacity-50 tracking-[2px] uppercase">Nexus AI Engine v3.0</p>
+                <p id="active-script-label" class="text-[9px] font-bold text-blue-400 uppercase mt-1">Ready for Execution</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="downloadResults()" class="bg-slate-800 hover:bg-slate-700 text-[9px] px-4 py-1.5 rounded-lg font-bold text-white uppercase transition-all flex items-center gap-2">
+                    <i class="fas fa-download"></i> Download
+                </button>
+                <div id="run-badge" class="bg-slate-800 text-[9px] px-3 py-1.5 rounded-lg font-bold text-white uppercase">Standby</div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-4 gap-4">
+            <div class="tile border-b-2 border-blue-500 flex flex-col items-center"><span class="text-[9px] font-bold opacity-40 uppercase">Total</span><span id="stat-total" class="text-2xl font-bold">0</span></div>
+            <div class="tile border-b-2 border-emerald-500 flex flex-col items-center"><span class="text-[9px] font-bold opacity-40 uppercase text-emerald-500">Pass</span><span id="stat-passed" class="text-2xl font-bold text-emerald-500">0</span></div>
+            <div class="tile border-b-2 border-rose-500 flex flex-col items-center"><span class="text-[9px] font-bold opacity-40 uppercase text-rose-500">Fail</span><span id="stat-failed" class="text-2xl font-bold text-rose-500">0</span></div>
+            <div class="tile border-b-2 border-amber-500 flex flex-col items-center"><span class="text-[9px] font-bold opacity-40 uppercase text-amber-500">Skip</span><span id="stat-skipped" class="text-2xl font-bold text-amber-500">0</span></div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4">
+            <div class="tile col-span-2 flex flex-col justify-center gap-3">
+                <div class="flex justify-between items-end">
+                    <h4 id="active-suite-name" class="text-sm font-bold uppercase text-blue-400">System Idle</h4>
+                    <span id="percentage-text" class="text-[10px] font-mono opacity-50">0%</span>
+                </div>
+                <div class="bar-rail"><div id="main-p-bar" class="bar-fill"></div></div>
+            </div>
+            <div class="tile flex flex-col items-center justify-center py-4 bg-slate-900/40">
+                <div class="h-28 w-28 mb-3"><canvas id="historyChart"></canvas></div>
+                <div class="flex gap-4">
+                    <div class="flex items-center gap-2 text-[8px] font-bold uppercase"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> PASS: <span id="leg-p">0%</span></div>
+                    <div class="flex items-center gap-2 text-[8px] font-bold uppercase"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> FAIL: <span id="leg-f">0%</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex-1 grid grid-cols-3 gap-4 min-h-0">
+            <div class="tile col-span-2 p-0 overflow-hidden"><iframe id="report-frame" src="about:blank" class="w-full h-full bg-slate-900 border-none"></iframe></div>
+            <div class="tile p-0 flex flex-col border-dashed">
+                <div class="p-3 border-b border-white/5 bg-white/5 text-[9px] font-bold opacity-40 uppercase">System Stream</div>
+                <div id="log-container" class="p-4 flex-1 font-mono text-[9px] space-y-2 overflow-y-auto text-blue-300 custom-scroll"></div>
+            </div>
+        </div>
+    </div>
+
+    <aside class="bg-black/30 border-l border-white/5 flex flex-col h-full overflow-hidden">
+        <div class="p-6 border-b border-white/5 flex items-center gap-3">
+            <div class="orb"></div><span class="text-sm font-bold uppercase tracking-widest text-blue-400">AI Controller</span>
+        </div>
+        <div id="chat-window" class="flex-1 overflow-y-auto p-6 space-y-6 custom-scroll"></div>
+        <div class="p-6 bg-black/20 border-t border-white/5 space-y-4">
+            <div id="confirm-box" class="hidden p-4 bg-blue-900/30 border border-blue-500/50 rounded-xl space-y-3">
+                <p id="confirm-msg" class="text-[11px] font-semibold"></p>
+                <div class="flex gap-2">
+                    <button onclick="finalConfirm(true)" class="flex-1 bg-blue-600 py-2 rounded-lg text-[10px] font-bold uppercase">Execute</button>
+                    <button onclick="finalConfirm(false)" class="flex-1 bg-slate-700 py-2 rounded-lg text-[10px] font-bold uppercase">Cancel</button>
+                </div>
+            </div>
+            <div class="relative">
+                <input id="chat-input" type="text" oninput="validateInput(this)" onkeypress="if(event.key==='Enter') sendChat()" placeholder="e.g. Run US INT Regression..." class="w-full bg-slate-900 border border-white/10 p-4 rounded-xl text-xs text-white outline-none focus:border-blue-500">
+                <button id="send-btn" onclick="sendChat()" class="absolute right-4 top-4 text-slate-600 opacity-30 pointer-events-none transition-all duration-300"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<div id="bug-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4">
+    <div class="w-full max-w-md bg-[#1e293b] border border-blue-500/30 shadow-2xl p-8 rounded-2xl text-white">
+        <div class="flex justify-between items-center mb-6">
+            <div class="flex flex-col">
+                <h3 class="text-lg font-bold uppercase tracking-tighter text-blue-400">Jira Console</h3>
+                <span id="mode-label" class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Active: Single Case</span>
+            </div>
+            <button onclick="closeBugModal()" class="text-slate-400 hover:text-white transition-all"><i class="fas fa-times"></i></button>
+        </div>
+
+        <div class="flex bg-slate-900 p-1 rounded-xl mb-4 border border-white/5">
+            <button id="btn-single" onclick="setBugMode('single')" class="flex-1 py-2 text-[10px] font-bold uppercase rounded-lg bg-blue-600 text-white transition-all">Single</button>
+            <button id="btn-bulk" onclick="setBugMode('bulk')" class="flex-1 py-2 text-[10px] font-bold uppercase rounded-lg text-slate-400 transition-all">Bulk</button>
+        </div>
+
+        <div id="bug-stepper" class="flex items-center justify-between mb-4 bg-blue-500/5 p-3 rounded-xl border border-blue-500/20">
+            <button onclick="prevBug()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-all"><i class="fas fa-chevron-left text-xs"></i></button>
+            <div class="flex flex-col items-center">
+                <span id="stepper-info" class="text-[10px] font-bold uppercase text-blue-400">Failure 1 of 1</span>
+                <div id="status-check" class="flex items-center gap-1 mt-0.5 hidden">
+                    <span class="text-[8px] text-emerald-500 font-bold uppercase">Raised</span>
+                    <i class="fas fa-check-circle text-[8px] text-emerald-500"></i>
+                </div>
+            </div>
+            <button onclick="nextBug()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-all"><i class="fas fa-chevron-right text-xs"></i></button>
+        </div>
+
+        <div class="space-y-4">
+            <input id="bug-title" type="text" class="w-full bg-slate-900 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-blue-500">
+            <div class="grid grid-cols-2 gap-4">
+                <input id="bug-epic" type="text" placeholder="Epic Link (NEX-123)" class="w-full bg-slate-900 border border-white/10 p-3 rounded-xl text-xs text-white outline-none">
+                <select id="bug-priority" class="w-full bg-slate-900 border border-white/10 p-3 rounded-xl text-xs text-white uppercase font-bold outline-none cursor-pointer">
+                    <option>High</option><option>Medium</option><option>Low</option>
+                </select>
+            </div>
+            <textarea id="bug-desc" rows="5" class="w-full bg-slate-900 border border-white/10 p-3 rounded-xl text-[10px] text-white outline-none font-mono custom-scroll focus:border-blue-500"></textarea>
+            <div class="flex gap-3">
+                <button onclick="submitBugToJira()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl text-[10px] uppercase transition-all shadow-lg shadow-blue-600/20 active:scale-95">Push to Jira</button>
+                <button onclick="closeBugModal()" class="px-6 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[10px] uppercase font-bold border border-white/5">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let historyChart, currentFailures = [], currentBugIndex = 0, raisedBugs = new Set(), currentMode = 'single', pendingParams = null;
+
+    function validateInput(el) {
+        const val = el.value.trim().toLowerCase();
+        const btn = document.getElementById('send-btn');
+        const keywords = ['run', 'sanity', 'smoke', 'regression', 'jira', 'prod'];
+        const isValid = val.length > 2 && keywords.some(k => val.includes(k));
+        btn.className = isValid ? "absolute right-4 top-4 text-blue-500 opacity-100 pointer-events-auto transition-all" : "absolute right-4 top-4 text-slate-600 opacity-30 pointer-events-none transition-all";
+    }
+
+    async function sendChat() {
+        const input = document.getElementById('chat-input'), msg = input.value.trim();
+        if(!msg) return;
+        appendChat("User", msg); input.value = "";
+        try {
+            const res = await fetch('/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: msg }) });
+            const data = await res.json();
+            if(data.type === 'confirmation') {
+                pendingParams = data.params;
+                document.getElementById('confirm-msg').innerHTML = `Run <b>${data.params.region} ${data.params.env} ${data.params.test_type}</b>?`;
+                document.getElementById('confirm-box').classList.remove('hidden');
+            } else { appendChat("AI Agent", data.message); }
+        } catch (e) { addLog("Engine Offline", true); }
+    }
+
+    async function finalConfirm(choice) {
+        document.getElementById('confirm-box').classList.add('hidden');
+        if(!choice) return;
+
+        const scriptLabel = `${pendingParams.region} | ${pendingParams.env} | ${pendingParams.test_type}`.toUpperCase();
+        document.getElementById('active-script-label').innerText = scriptLabel;
+        document.getElementById('run-badge').innerText = "Running";
+        document.getElementById('run-badge').className = "bg-emerald-600 text-[9px] px-3 py-1.5 rounded-lg font-bold text-white animate-pulse uppercase";
+
+        await fetch('/confirm_run', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ params: pendingParams }) });
+
+        let prog = 0;
+        const bar = document.getElementById('main-p-bar'), pText = document.getElementById('percentage-text');
+        const timer = setInterval(async () => {
+            const res = await fetch('/status');
+            const data = await res.json();
+            if (data.status === 'completed') {
+                clearInterval(timer); bar.style.width = "100%"; pText.innerText = "100%"; finalizeUI(data);
+            } else {
+                prog = Math.min(prog + 5, 95); bar.style.width = prog + "%"; pText.innerText = Math.round(prog) + "%";
+            }
+        }, 1500);
+    }
+
+    function finalizeUI(data) {
+        document.getElementById('run-badge').innerText = "Complete";
+        document.getElementById('run-badge').className = "bg-blue-600 text-[9px] px-3 py-1.5 rounded-lg font-bold text-white uppercase";
+        document.getElementById('stat-total').innerText = data.total;
+        document.getElementById('stat-passed').innerText = data.passed;
+        document.getElementById('stat-failed').innerText = data.failed;
+        document.getElementById('stat-skipped').innerText = data.skipped;
+        document.getElementById('report-frame').src = "/results/report.html";
+        historyChart.data.datasets[0].data = [data.passed, data.failed, data.skipped];
+        historyChart.update();
+
+        currentFailures = data.failures || [];
+        if (data.failed > 0) {
+            appendChat("AI Agent", `Analysis: Found **${data.failed}** failures. Open dashboard to raise tickets.`);
+            const listDiv = document.createElement('div');
+            listDiv.className = "w-full space-y-2 mt-2";
+            currentFailures.forEach((f, i) => {
+                const card = document.createElement('div');
+                card.className = "fail-card p-3 rounded-xl flex justify-between items-center";
+                card.onclick = () => { currentBugIndex = i; openBugModal(); };
+                card.innerHTML = `<div><p class='text-[8px] font-bold text-rose-500 uppercase'>Failed</p><p class='text-[10px] font-bold truncate text-slate-200'>${f.name}</p></div><i class="fas fa-bug text-[10px] text-rose-500"></i>`;
+                listDiv.appendChild(card);
+            });
+            document.getElementById('chat-window').appendChild(listDiv);
+        }
+    }
+
+    function openBugModal() { document.getElementById('bug-modal').classList.remove('hidden'); setBugMode('single'); }
+
+    function setBugMode(mode) {
+        currentMode = mode;
+        const sBtn = document.getElementById('btn-single'), bBtn = document.getElementById('btn-bulk'), stepper = document.getElementById('bug-stepper');
+        if(mode === 'single') {
+            sBtn.className = "flex-1 py-2 text-[10px] font-bold uppercase rounded-lg bg-blue-600 text-white";
+            bBtn.className = "flex-1 py-2 text-[10px] font-bold uppercase rounded-lg text-slate-400";
+            stepper.classList.remove('hidden'); loadBugData(currentBugIndex);
+        } else {
+            bBtn.className = "flex-1 py-2 text-[10px] font-bold uppercase rounded-lg bg-blue-600 text-white";
+            sBtn.className = "flex-1 py-2 text-[10px] font-bold uppercase rounded-lg text-slate-400";
+            stepper.classList.add('hidden'); loadBulkData();
+        }
+    }
+
+    function loadBugData(index) {
+        const f = currentFailures[index];
+        document.getElementById('stepper-info').innerText = `Failure ${index + 1} of ${currentFailures.length}`;
+        document.getElementById('bug-title').value = `[FAIL] ${f.name}`;
+        document.getElementById('bug-desc').value = `[TIMESTAMP]: ${new Date().toLocaleTimeString()}\n[TEST CASE]: ${f.name}\n[ENVIRONMENT]: ${document.getElementById('active-script-label').innerText}\n[ERROR TRACE]:\n${f.message}`;
+
+        // Show/Hide Green Tick based on raisedBugs set
+        const statusCheck = document.getElementById('status-check');
+        if(raisedBugs.has(index)) {
+            statusCheck.classList.remove('hidden');
+        } else {
+            statusCheck.classList.add('hidden');
+        }
+    }
+
+    function loadBulkData() {
+        document.getElementById('bug-title').value = `Bulk Defect Report`;
+        document.getElementById('bug-desc').value = currentFailures.map(f => `TEST: ${f.name}\nLOG: ${f.message}`).join('\n\n---\n\n');
+    }
+
+    async function submitBugToJira() {
+        const payload = { title: document.getElementById('bug-title').value, parent_id: document.getElementById('bug-epic').value, description: document.getElementById('bug-desc').value };
+        if(!payload.parent_id) { alert("Enter Epic Link"); return; }
+        await fetch('/raise_bug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+
+        // Add current index to raised set
+        raisedBugs.add(currentBugIndex);
+        addLog(`Bug Pushed: ${payload.title}`);
+
+        // Refresh view to show green tick immediately
+        loadBugData(currentBugIndex);
+
+        if(currentMode === 'single' && currentBugIndex < currentFailures.length - 1) {
+            setTimeout(() => nextBug(), 800); // Auto-slide to next after short delay
+        } else if (currentMode === 'bulk') {
+            closeBugModal();
+        }
+    }
+
+    function closeBugModal() {
+        document.getElementById('bug-modal').classList.add('hidden');
+        const raised = raisedBugs.size, total = currentFailures.length;
+        appendChat("AI Agent", `Defect session ended. **${raised}** raised, **${total - raised}** remaining.`);
+    }
+
+    function nextBug() { if (currentBugIndex < currentFailures.length - 1) { currentBugIndex++; loadBugData(currentBugIndex); } }
+    function prevBug() { if (currentBugIndex > 0) { currentBugIndex--; loadBugData(currentBugIndex); } }
+
+    function appendChat(sender, text) {
+        const win = document.getElementById('chat-window'), div = document.createElement('div');
+        div.className = sender === "User" ? "flex flex-col items-end" : "flex flex-col items-start";
+        div.innerHTML = `<span class="text-[9px] font-bold opacity-30 uppercase mb-1">${sender}</span><div class="max-w-[90%] p-3 rounded-2xl text-xs ${sender === 'User' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-200'}">${text}</div>`;
+        win.appendChild(div); win.scrollTop = win.scrollHeight;
+    }
+
+    function addLog(msg, isError = false) {
+        const c = document.getElementById('log-container'), p = document.createElement('p');
+        p.className = isError ? "text-rose-400" : "text-emerald-400";
+        p.innerHTML = `[${new Date().toLocaleTimeString()}] > ${msg}`;
+        c.prepend(p);
+    }
+
+    async function downloadResults() {
+    addLog("Initializing report package download...");
+    try {
+        const response = await fetch('/download_results');
+        if (!response.ok) throw new Error("Download failed");
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+
+        // Create a hidden anchor element
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+
+        // Suggest a professional filename based on the current run
+        const scriptName = document.getElementById('active-script-label').innerText.replace(/ | \| /g, "_");
+        a.download = `Nexus_Report_${scriptName || 'Default'}_${new Date().getTime()}.zip`;
+
+        document.body.appendChild(a);
+        a.click(); // Trigger the download
+
+        // Cleanup
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        addLog("Report downloaded successfully.", false);
+    } catch (error) {
+        addLog("Download Error: Server endpoint not reachable.", true);
+        console.error(error);
+    }
+}
+
+    window.onload = () => {
+        const ctx = document.getElementById('historyChart').getContext('2d');
+        historyChart = new Chart(ctx, { type: 'doughnut', data: { datasets: [{ data: [0,0,0], backgroundColor: ['#10b981','#f43f5e','#f59e0b'], borderWidth:0 }] }, options: { cutout:'75%', plugins:{legend:{display:false}}, maintainAspectRatio:false }});
+    };
+</script>
+</body>
+</html>
