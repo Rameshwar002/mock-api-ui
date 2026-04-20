@@ -1,0 +1,68 @@
+// Function to generate the updated Report HTML with the Status Column
+function generateEnhancedReport(data) {
+    let rows = data.results.map((test, index) => {
+        // Check if this specific failure index exists in our raisedBugs set
+        const statusText = raisedBugs.has(index) ? 
+            '<span style="color: #10b981; font-weight: bold;">RAISED</span>' : 
+            (test.status === 'FAIL' ? '<span style="color: #f43f5e;">PENDING</span>' : '-');
+            
+        return `
+            <tr>
+                <td>${test.id}</td>
+                <td>${test.name}</td>
+                <td>${test.status}</td>
+                <td>${statusText}</td> <td>${test.duration}s</td>
+            </tr>`;
+    }).join('');
+
+    return `
+        <html>
+            <head>
+                <style>
+                    body { font-family: sans-serif; background: #0f172a; color: white; padding: 20px; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th, td { border: 1px solid #334155; padding: 12px; text-align: left; }
+                    th { background: #1e293b; text-transform: uppercase; font-size: 12px; }
+                </style>
+            </head>
+            <body>
+                <h2>Automation Execution Report</h2>
+                <p>Run Type: ${document.getElementById('active-script-label').innerText}</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th><th>Test Case Name</th><th>Result</th><th>Defect Status</th><th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </body>
+        </html>`;
+}
+
+
+
+
+async function downloadResults() {
+    addLog("Packaging report with Defect Status sync...");
+    
+    // 1. Get the current test data (assuming it's stored in a global variable 'lastRunData')
+    const finalHtml = generateEnhancedReport(lastRunData);
+    
+    // 2. Create a Blob from the generated HTML
+    const blob = new Blob([finalHtml], { type: 'text/html' });
+    const url = window.URL.createObjectURL(blob);
+    
+    // 3. Trigger Download
+    const a = document.createElement('a');
+    const scriptName = document.getElementById('active-script-label').innerText.replace(/ | \| /g, "_");
+    a.href = url;
+    a.download = `Execution_Summary_${scriptName}_${new Date().getTime()}.html`;
+    
+    document.body.appendChild(a);
+    a.click();
+    
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    addLog("Export complete: All defect statuses included.");
+}
