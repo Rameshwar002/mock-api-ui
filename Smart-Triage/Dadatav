@@ -1,0 +1,30 @@
+// Add this to your RegistryController.java
+
+@PostMapping("/raise-bulk")
+public ResponseEntity<?> raiseBulkBug(@RequestBody Map<String, Object> payload, @RequestParam String username) {
+    // 1. Get the shared Jira Key and common data
+    String jiraKey = (String) payload.get("jiraKey");
+    String env = (String) payload.get("env");
+    String status = (String) payload.get("status");
+    
+    // 2. Get the list of Test Case Names
+    List<String> testNames = (List<String>) payload.get("testNames");
+    
+    // 3. Register each one in the database
+    for (String name : testNames) {
+        BugRegistry bug = new BugRegistry();
+        bug.setTestCaseName(name);
+        bug.setJiraKey(jiraKey);
+        bug.setStatus(status);
+        bug.setEnv(env);
+        bug.setErrorMessage("Bulk Raised Ticket"); // Or combine messages
+        
+        registryService.saveBug(bug, username);
+    }
+
+    return ResponseEntity.ok(Map.of(
+        "message", "Bulk registration successful",
+        "count", testNames.size(),
+        "sharedJiraKey", jiraKey
+    ));
+}
