@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Multi-Tool Suite</title>
+<link rel="stylesheet" href="css/base.css"/>
+<link rel="stylesheet" href="css/components.css"/>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════
+     LOGIN SCREEN
+════════════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-brand">
+      <div class="login-brand-icon"><span></span></div>
+      <span class="login-brand-name">Multi-Tool Suite</span>
+    </div>
+    <div class="login-title">Sign in</div>
+    <div class="login-sub">AI-driven Software Testing and Analysis Platform</div>
+    <div class="login-err" id="login-err"></div>
+    <div class="login-field">
+      <label>Username</label>
+      <input type="text" id="login-user" placeholder="Enter username" autocomplete="username"/>
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password"/>
+    </div>
+    <button class="btn-login" id="btn-login">Sign In</button>
+    <div class="login-hint">
+      Demo accounts:<br/>
+      <b>admin</b> / admin123 &nbsp;&nbsp; <b>qa_eng</b> / qa2024
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     APP SHELL
+════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="tb-brand">
+      <div class="tb-brand-icon"><span></span></div>
+      <span class="tb-brand-name">Multi-Tool Suite</span>
+    </div>
+    <div class="tb-search">
+      <span class="tb-search-icon">&#128269;</span>
+      <input type="text" id="global-search" placeholder="Search..."/>
+    </div>
+    <div class="tb-right">
+      <div class="tb-icon-btn" title="Notifications">&#128276;</div>
+      <div class="tb-icon-btn" title="Share">&#128279;</div>
+      <div class="tb-icon-btn" title="Settings" onclick="navigateTo('admin-settings')">&#9881;</div>
+      <div class="tb-user">
+        <div class="tb-avatar" id="tb-avatar">A</div>
+        <span class="tb-user-name" id="tb-uname">User</span>
+        <span style="color:var(--faint);font-size:10px">&#9660;</span>
+      </div>
+      <button class="tb-logout" id="btn-logout">Sign out</button>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="app-body">
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="sb-section">Tools</div>
+
+      <div class="sb-item active" data-view="tc">
+        <div class="sb-icon">TC</div>
+        <span class="sb-label">Test Case Generation</span>
+      </div>
+      <div class="sb-item" data-view="dg">
+        <div class="sb-icon">DG</div>
+        <span class="sb-label">Diagram Generation</span>
+      </div>
+      <div class="sb-item" data-view="seq">
+        <div class="sb-icon">SQ</div>
+        <span class="sb-label">Sequence Diagram Reviewer</span>
+      </div>
+
+      <div class="sb-divider"></div>
+      <div class="sb-section">System</div>
+
+      <div class="sb-item" data-view="knowledge" data-admin-only>
+        <div class="sb-icon">KB</div>
+        <span class="sb-label">Knowledge Base</span>
+      </div>
+      <div class="sb-item" data-view="admin-users" data-admin-only>
+        <div class="sb-icon">&#128100;</div>
+        <span class="sb-label">System Admin</span>
+      </div>
+      <div class="sb-item" data-view="admin-settings" data-admin-only>
+        <div class="sb-icon">&#9881;</div>
+        <span class="sb-label">System Settings</span>
+      </div>
+
+      <div class="sb-divider"></div>
+      <div class="sb-item sb-bottom-item" data-view="admin-users">
+        <div class="sb-icon" id="sb-user-icon">A</div>
+        <span class="sb-label" id="sb-username-label">Admin</span>
+      </div>
+    </div>
+
+    <!-- MAIN CONTENT AREA -->
+    <div class="main">
+
+      <!-- ─── VIEW: TEST CASE GENERATION ─── -->
+      <div class="view active" id="view-tc">
+        <div class="view-title">Test Case Generation</div>
+        <div class="err-banner" id="tc-err"></div>
+
+        <!-- Overview card -->
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-title">Overview</div>
+          <div class="overview-grid">
+
+            <!-- Left: upload specs -->
+            <div class="upload-zone" id="drop-zone">
+              <h3>Upload Specifications</h3>
+              <p>Drop your Use Case or requirements file here or click to browse</p>
+              <input type="file" id="file-input" accept=".puml,.txt,.plantuml,.md"/>
+            </div>
+
+            <!-- Middle: right drop area + controls -->
+            <div class="upload-right">
+              <div class="upload-right-hint">Drop your Use Case or requirements file here or click to browse</div>
+              <div class="upload-icons">&#128196; &#8681; &#128202;</div>
+              <div class="file-tag" id="file-tag-row">
+                <span>&#128196;</span><span id="file-tag-name"></span>
+              </div>
+              <div class="tc-limit-row">
+                <label for="tc-limit">Number of test cases</label>
+                <input type="number" id="tc-limit" min="5" max="50" value="5"/>
+                <input type="range" class="slider" id="tc-slider" min="5" max="50" value="5"/>
+              </div>
+              <button class="btn-generate" id="btn-generate" disabled>
+                Generate Test Cases &#8594;
+              </button>
+            </div>
+
+            <!-- Right: actions panel -->
+            <div class="actions-card card">
+              <div class="card-title">Actions</div>
+              <button class="btn-action primary" id="btn-export" disabled>
+                &#128202; Export Test Cases (PDF/CSV)
+              </button>
+              <button class="btn-action" id="btn-import">
+                &#128221; Import/Edit Case Data
+              </button>
+              <div class="card-title" style="margin-top:14px">Related Tools</div>
+              <a class="related-link" href="#" data-nav="dg">Diagram Generation</a>
+              <a class="related-link" href="#" data-nav="seq">Review Sequence Diagram</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Processing Pipeline card -->
+        <div class="card" style="margin-bottom:14px">
+          <div class="section-label">
+            Processing Pipeline
+            <span class="section-sublabel">&#8212; AI Agents Processing Pipeline</span>
+          </div>
+          <div class="pipeline-outer">
+            <div class="pipeline-label-col"><span>Processing<br/>Pipeline</span></div>
+            <div style="flex:1;display:flex;flex-direction:column">
+              <div class="pipeline-canvas-wrap">
+                <div class="pipeline-row" id="pipeline-row"></div>
+              </div>
+              <div class="pipeline-progress" id="pipeline-progress">
+                <span class="pp-label" id="pp-label">Starting...</span>
+                <div class="pp-bar"><div class="pp-fill" id="pp-fill"></div></div>
+                <span class="pp-pct" id="pp-pct">0%</span>
+              </div>
+              <div class="flow-log" id="flow-log"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Test Cases table -->
+        <div style="margin-top:14px">
+          <div class="tc-table-header">
+            <span class="tc-table-title">Generated Test Cases</span>
+            <span class="tc-count-badge" id="tc-count-badge">0 cases</span>
+            <div class="tc-search-wrap">
+              <span class="tc-search-icon">&#128269;</span>
+              <input class="tc-search-input" id="tc-search" placeholder="Filter/Search"/>
+            </div>
+            <button class="btn-add-case" id="btn-add-case-btn">+ Add Case</button>
+          </div>
+          <div class="tc-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th onclick="sortTable('tc_id')">TC ID <span class="sort-icon">&#8597;</span></th>
+                  <th onclick="sortTable('module')">Module <span class="sort-icon">&#8597;</span></th>
+                  <th onclick="sortTable('name')">Test Case Name</th>
+                  <th onclick="sortTable('type')">Type <span class="sort-icon">&#8597;</span></th>
+                  <th onclick="sortTable('priority')">Priority <span class="sort-icon">&#8597;</span></th>
+                  <th>Prerequisite</th>
+                  <th>Test Steps / Process</th>
+                  <th>Expected Output</th>
+                  <th onclick="sortTable('status')">Status <span class="sort-icon">&#8597;</span></th>
+                  <th style="width:22px"></th>
+                </tr>
+              </thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── VIEW: KNOWLEDGE BASE ─── -->
+      <div class="view" id="view-knowledge">
+        <div class="view-title">Knowledge Base</div>
+        <p style="font-size:11px;color:var(--sub);margin-bottom:18px">
+          Provide context about your system — LLM will use this to generate more accurate test cases.
+        </p>
+        <div class="know-grid">
+          <div class="know-card">
+            <div class="know-card-title">System Context</div>
+            <label class="field-label">Project Name</label>
+            <input class="field-input" id="k-project" placeholder="e.g. User Management Service" style="margin-bottom:10px"/>
+            <label class="field-label">System Description</label>
+            <textarea class="field-textarea" id="k-desc" rows="3" placeholder="Brief description of what the system does..." style="margin-bottom:10px"></textarea>
+            <label class="field-label">Tech Stack</label>
+            <input class="field-input" id="k-tech" placeholder="e.g. Node.js, PostgreSQL, REST API"/>
+          </div>
+          <div class="know-card">
+            <div class="know-card-title">Domain Keywords</div>
+            <label class="field-label">Key Entities / Concepts</label>
+            <div class="tag-row" id="tag-row"></div>
+            <div class="tag-add">
+              <input id="tag-input" placeholder="Add keyword and press Enter..."/>
+              <button onclick="addTag()">Add</button>
+            </div>
+            <label class="field-label">Business Rules / Constraints</label>
+            <textarea class="field-textarea" id="k-rules" rows="3" placeholder="e.g. Email must be unique. Approval required before activation..."></textarea>
+          </div>
+          <div class="know-card">
+            <div class="know-card-title">Vector DB</div>
+            <div class="vdb-row">
+              <div class="vdb-dot" id="vdb-dot"></div>
+              <span style="flex:1;font-size:12px" id="vdb-label">Not configured</span>
+              <span style="font-size:10px;font-family:var(--mono);color:var(--faint)" id="vdb-status">--</span>
+            </div>
+            <label class="field-label">Provider</label>
+            <select class="field-select" id="vdb-provider" style="margin-bottom:10px">
+              <option value="">Select provider</option>
+              <option value="chroma">ChromaDB (localhost:8000)</option>
+              <option value="pinecone">Pinecone</option>
+              <option value="weaviate">Weaviate</option>
+              <option value="qdrant">Qdrant</option>
+            </select>
+            <label class="field-label">Collection / Index Name</label>
+            <input class="field-input" id="vdb-collection" placeholder="e.g. system_knowledge"/>
+          </div>
+          <div class="know-card">
+            <div class="know-card-title">Test Preferences</div>
+            <label class="field-label">Test Focus Areas</label>
+            <select class="field-select" id="k-focus" style="margin-bottom:10px">
+              <option value="all">All (Positive + Negative + Security)</option>
+              <option value="positive">Positive / Happy Path only</option>
+              <option value="negative">Negative / Edge Cases only</option>
+              <option value="security">Security focused</option>
+            </select>
+            <label class="field-label">Min Test Cases</label>
+            <input class="field-input" id="k-mincount" type="number" min="5" max="50" value="8" style="margin-bottom:10px"/>
+            <label class="field-label">Additional Instructions</label>
+            <textarea class="field-textarea" id="k-extra" rows="2" placeholder="e.g. Always include boundary tests. Focus on auth flows..."></textarea>
+          </div>
+        </div>
+        <div class="know-save-row">
+          <button class="btn-primary btn-save">Save Knowledge</button>
+        </div>
+      </div>
+
+      <!-- ─── VIEW: DIAGRAM GENERATION ─── -->
+      <div class="view" id="view-dg">
+        <div class="view-title">Diagram Generation</div>
+        <div class="dg-wrap">
+          <div class="dg-card">
+            <label class="field-label">Requirement / Description</label>
+            <textarea class="dg-textarea" id="dg-desc"
+              placeholder="Describe your system or feature in plain English, e.g. A user logs in with email and password. On success the system returns a JWT token..."></textarea>
+            <div class="dg-row">
+              <select class="dg-select" id="dg-type">
+                <option value="sequence">Sequence Diagram</option>
+                <option value="usecase">Use Case Diagram</option>
+                <option value="activity">Activity Diagram</option>
+                <option value="class">Class Diagram</option>
+              </select>
+              <button class="btn-primary" id="dg-btn">Generate Diagram</button>
+            </div>
+            <div class="dg-renderer-badge" id="dg-renderer-badge">Checking renderer...</div>
+          </div>
+
+          <div class="dg-loading" id="dg-loading">
+            <div class="dg-spinner"></div><span>Sending to LLM...</span>
+          </div>
+          <div class="dg-err" id="dg-err"></div>
+          <div class="dg-placeholder" id="dg-placeholder">Generated diagram will appear here</div>
+
+          <!-- Result box: tabs + preview/code -->
+          <div class="dg-result-box" id="dg-result-box" style="display:none">
+
+            <div class="dg-tabs">
+              <button class="dg-tab active" id="dg-tab-preview">&#128247; Preview</button>
+              <button class="dg-tab" id="dg-tab-code">&lt;/&gt; Code</button>
+              <button class="btn-outline dg-tab-btn-rerender" id="dg-rerender" title="Re-render image">&#8635; Re-render</button>
+            </div>
+
+            <div class="dg-render-err" id="dg-render-err"></div>
+
+            <!-- Rendered image -->
+            <div class="dg-image-wrap" id="dg-image-wrap">
+              <img id="dg-image" alt="Rendered diagram" style="display:none"/>
+            </div>
+
+            <!-- Raw PUML code -->
+            <pre class="dg-output" id="dg-output" style="display:none"></pre>
+
+          </div>
+
+          <div class="dg-actions" id="dg-actions">
+            <button class="btn-outline" id="dg-copy">Copy PUML</button>
+            <button class="btn-outline" id="dg-download">&#8681; Download PNG</button>
+            <button class="btn-primary" id="dg-use-tc">Use in Test Case Generation &#8594;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── VIEW: SEQUENCE DIAGRAM REVIEWER ─── -->
+      <div class="view" id="view-seq">
+        <div class="view-title">Sequence Diagram Reviewer</div>
+        <p style="font-size:11px;color:var(--sub);margin-bottom:10px">
+          Upload your <strong>old</strong> and <strong>new</strong> diagrams — supports <strong>.puml</strong> text files and images (<strong>.png .jpg .svg</strong>). Images are sent to the LLM for automatic extraction. The tool then compares both diagrams, highlights every change, and explains what was updated.
+        </p>
+        <div class="vision-notice" id="vision-notice">
+          &#9888; Image files require a vision-capable LLM (e.g. llava, llama3.2-vision, gpt-4o). Text-only models cannot read images.
+        </div>
+        <div class="err-banner" id="seq-err"></div>
+
+        <!-- Two upload zones -->
+        <div class="seq-layout">
+
+          <!-- OLD diagram -->
+          <div class="seq-upload-card">
+            <div class="seq-upload-header">
+              <div class="seq-upload-icon old">&#128218;</div>
+              <div>
+                <div class="seq-upload-title">Old Diagram</div>
+                <div class="seq-upload-sub">Previous / baseline version</div>
+              </div>
+            </div>
+            <div class="seq-zone" id="seq-old-zone">
+              <div class="seq-zone-icon">&#128196;</div>
+              <div class="seq-zone-text">Drop old .puml or image here<br/><span style="font-size:10px;color:var(--faint)">.puml &nbsp;.txt &nbsp;.png &nbsp;.jpg &nbsp;.svg</span></div>
+              <input type="file" id="seq-old-input" accept=".puml,.txt,.plantuml,.png,.jpg,.jpeg,.svg,.gif,.webp"/>
+            </div>
+            <div class="seq-file-tag old-tag" id="seq-old-tag"></div>
+            <div id="seq-old-img-wrap" style="display:none;margin-top:8px;text-align:center">
+              <img id="seq-old-img" style="max-width:100%;max-height:180px;border-radius:6px;border:1px solid var(--border)"/>
+            </div>
+            <pre class="seq-content-preview" id="seq-old-preview"></pre>
+          </div>
+
+          <!-- NEW diagram -->
+          <div class="seq-upload-card">
+            <div class="seq-upload-header">
+              <div class="seq-upload-icon new">&#128196;</div>
+              <div>
+                <div class="seq-upload-title">New Diagram</div>
+                <div class="seq-upload-sub">Updated / latest version</div>
+              </div>
+            </div>
+            <div class="seq-zone" id="seq-new-zone">
+              <div class="seq-zone-icon">&#128196;</div>
+              <div class="seq-zone-text">Drop new .puml or image here<br/><span style="font-size:10px;color:var(--faint)">.puml &nbsp;.txt &nbsp;.png &nbsp;.jpg &nbsp;.svg</span></div>
+              <input type="file" id="seq-new-input" accept=".puml,.txt,.plantuml,.png,.jpg,.jpeg,.svg,.gif,.webp"/>
+            </div>
+            <div class="seq-file-tag new-tag" id="seq-new-tag"></div>
+            <div id="seq-new-img-wrap" style="display:none;margin-top:8px;text-align:center">
+              <img id="seq-new-img" style="max-width:100%;max-height:180px;border-radius:6px;border:1px solid var(--border)"/>
+            </div>
+            <pre class="seq-content-preview" id="seq-new-preview"></pre>
+          </div>
+        </div>
+
+        <!-- Compare button -->
+        <button class="btn-compare" id="btn-compare" disabled>
+          &#128269; Compare Diagrams &amp; Explain Changes
+        </button>
+
+        <!-- Image extraction progress (shown when LLM reads an image) -->
+        <div id="extract-progress" style="display:none;margin-top:12px;padding:10px 14px;background:#f0f6ff;border:1px solid #c5d8f5;border-radius:8px;font-size:12px;color:var(--blue);font-family:var(--mono);display:none;align-items:center;gap:8px">
+          <div style="width:13px;height:13px;border:2px solid #c5d8f5;border-top-color:var(--blue);border-radius:50%;animation:spin 1s linear infinite;flex-shrink:0"></div>
+          <span id="extract-progress-text"></span>
+        </div>
+
+        <!-- DIFF RESULTS (hidden until compared) -->
+        <div id="diff-results" style="display:none;margin-top:20px">
+
+          <!-- Summary chips -->
+          <div class="diff-header-row">
+            <span style="font-size:13px;font-weight:700">Comparison Results</span>
+            <div class="diff-summary-chips" id="diff-chips"></div>
+          </div>
+
+          <!-- Side-by-side diff -->
+          <div class="diff-side-wrap">
+            <div class="diff-side">
+              <div class="diff-side-header old">
+                &#128218; <span id="diff-old-title">Old Diagram</span>
+              </div>
+              <div class="diff-side-body old" id="diff-old-body"></div>
+            </div>
+            <div class="diff-side">
+              <div class="diff-side-header new">
+                &#128196; <span id="diff-new-title">New Diagram</span>
+              </div>
+              <div class="diff-side-body new" id="diff-new-body"></div>
+            </div>
+          </div>
+
+          <!-- AI Explanation box -->
+          <div class="ai-explanation">
+            <div class="ai-explanation-header">
+              <span class="ai-explanation-icon">&#129504;</span>
+              <span class="ai-explanation-title">AI Analysis — What Changed &amp; Why It Matters</span>
+            </div>
+            <div class="ai-loading" id="ai-explanation-loading">
+              <div class="ai-spinner"></div>
+              <span>Analysing changes with LLM...</span>
+            </div>
+            <div class="ai-explanation-body" id="ai-explanation-body" style="display:none"></div>
+          </div>
+
+          <!-- Change cards -->
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px">Detected Changes</div>
+          <div class="change-cards" id="change-cards"></div>
+
+          <!-- Diff table -->
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px">Change Summary Table</div>
+          <div class="diff-table-wrap">
+            <table class="diff-table">
+              <thead>
+                <tr>
+                  <th style="width:90px">Type</th>
+                  <th style="width:110px">Category</th>
+                  <th>Description</th>
+                  <th style="width:220px">Before / After</th>
+                </tr>
+              </thead>
+              <tbody id="diff-table-body"></tbody>
+            </table>
+          </div>
+
+          <!-- Reset button -->
+          <div style="display:flex;justify-content:flex-end;margin-top:12px">
+            <button class="btn-outline" onclick="resetSeqState()">&#8635; Compare Again</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── VIEW: ADMIN USERS ─── -->
+      <div class="view" id="view-admin-users">
+        <div class="view-title">System Admin — Users</div>
+        <div class="admin-grid">
+          <div class="admin-card">
+            <div class="admin-card-title">User Accounts</div>
+            <div id="user-list"></div>
+            <div style="padding-top:12px;margin-top:4px;border-top:1px dashed var(--border)">
+              <button class="btn-outline" style="font-size:11px">+ Invite User</button>
+            </div>
+          </div>
+          <div class="admin-card">
+            <div class="admin-card-title">Role Permissions</div>
+            <div class="setting-row"><span class="setting-label">Generate Test Cases</span><span class="setting-val">admin, qa_eng</span></div>
+            <div class="setting-row"><span class="setting-label">Export Results</span><span class="setting-val">admin, qa_eng</span></div>
+            <div class="setting-row"><span class="setting-label">Manage Knowledge Base</span><span class="setting-val">admin only</span></div>
+            <div class="setting-row"><span class="setting-label">Generate Diagrams</span><span class="setting-val">admin, qa_eng</span></div>
+            <div class="setting-row"><span class="setting-label">System Settings</span><span class="setting-val">admin only</span></div>
+            <div class="setting-row"><span class="setting-label">Sequence Reviewer</span><span class="setting-val">admin, qa_eng</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── VIEW: ADMIN SETTINGS ─── -->
+      <div class="view" id="view-admin-settings">
+        <div class="view-title">System Settings</div>
+        <div class="admin-grid">
+          <div class="admin-card">
+            <div class="admin-card-title">LLM Configuration</div>
+            <div class="setting-row"><span class="setting-label">LLM Endpoint</span><span class="setting-val" id="lbl-llm-url">localhost:11434/v1</span></div>
+            <div class="setting-row"><span class="setting-label">Model</span><span class="setting-val" id="lbl-llm-model">llama3</span></div>
+            <div class="setting-row"><span class="setting-label">Timeout (s)</span><span class="setting-val">120</span></div>
+            <div class="setting-row">
+              <span class="setting-label">LLM Status</span>
+              <span class="user-status-badge" id="llm-status-badge" style="background:#f5f5f5;color:#666">Checking...</span>
+            </div>
+          </div>
+          <div class="admin-card">
+            <div class="admin-card-title">Feature Flags</div>
+            <div class="setting-row"><span class="setting-label">Test Case Export</span><div class="toggle" title="On"></div></div>
+            <div class="setting-row"><span class="setting-label">Diagram Generation</span><div class="toggle" title="On"></div></div>
+            <div class="setting-row"><span class="setting-label">Sequence Reviewer</span><div class="toggle" title="On"></div></div>
+            <div class="setting-row"><span class="setting-label">Vector DB Integration</span><div class="toggle off" title="Off"></div></div>
+            <div class="setting-row"><span class="setting-label">Import/Edit Cases</span><div class="toggle" title="On"></div></div>
+          </div>
+          <div class="admin-card">
+            <div class="admin-card-title">Platform Info</div>
+            <div class="setting-row"><span class="setting-label">Version</span><span class="setting-val">v2.1.0</span></div>
+            <div class="setting-row"><span class="setting-label">Build</span><span class="setting-val">2025-06-15</span></div>
+            <div class="setting-row"><span class="setting-label">Backend Port</span><span class="setting-val">5050</span></div>
+            <div class="setting-row"><span class="setting-label">Session User</span><span class="setting-val" id="lbl-session-user">--</span></div>
+          </div>
+          <div class="admin-card">
+            <div class="admin-card-title">Danger Zone</div>
+            <div class="setting-row">
+              <span class="setting-label">Clear All Test Cases</span>
+              <button class="btn-danger" id="btn-danger-clear">Clear</button>
+            </div>
+            <div class="setting-row">
+              <span class="setting-label">Reset Knowledge Base</span>
+              <button class="btn-danger" id="btn-danger-reset">Reset</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main -->
+  </div><!-- /app-body -->
+
+  <!-- FOOTER -->
+  <div class="app-footer">
+    <span class="footer-text">Platform - AI-driven Software Testing and Analysis Platform</span>
+    <span class="footer-text">System Platform v2.1.0</span>
+  </div>
+
+</div><!-- /app -->
+
+<!-- ════════════════════════════════════════
+     JS — load order matters
+════════════════════════════════════════ -->
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/navigation.js"></script>
+<script src="js/upload.js"></script>
+<script src="js/knowledge.js"></script>
+<script src="js/testcases.js"></script>
+<script src="js/pipeline.js"></script>
+<script src="js/diagram.js"></script>
+<script src="js/seq-reviewer.js"></script>
+<script src="js/admin.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
