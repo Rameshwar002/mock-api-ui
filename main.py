@@ -505,20 +505,43 @@ def generate():
 
     parsed = parse_puml(puml)
     try:
-        cases  = call_llm(puml, parsed, knowledge)
+        cases = call_llm(puml, parsed, knowledge)
         source = "llm"
     except Exception as e:
         app.logger.error(f"LLM failed: {e}")
         return jsonify({"error": f"LLM generation failed: {str(e)}. Make sure your LLM is running and reachable at {LLM_BASE_URL}"}), 500
 
-    # guarantee required keys
+    # ── Validate: filter out any non-dict entries (LLM sometimes returns
+    #    error strings wrapped in a JSON array instead of TC objects) ──
+    valid_cases = []
+    for item in cases:
+        if not isinstance(item, dict):
+            app.logger.warning(f"Non-dict item in LLM response filtered out: {str(item)[:100]}")
+            continue
+        # If the item looks like an embedded error message, reject the whole batch
+        name_val = str(item.get("name", "") or "").lower()
+        steps_val = str(item.get("steps", "") or "").lower()
+        if any(phrase in name_val or phrase in steps_val for phrase in [
+            "llm generation failed", "error:", "failed to", "unable to", "cannot generate"
+        ]):
+            app.logger.warning(f"LLM error string detected in case fields: {item}")
+            continue
+        valid_cases.append(item)
+
+    if not valid_cases:
+        return jsonify({
+            "error": "LLM returned no valid test cases. The model may have returned an error message instead of JSON. Try again or check your LLM logs."
+        }), 500
+
+    # Guarantee required keys on all valid cases
     required = ["tc_id","module","name","type","priority","prerequisite","steps","expected_output"]
-    for i, tc in enumerate(cases):
+    for i, tc in enumerate(valid_cases):
         tc.setdefault("tc_id", f"TC-{str(i+1).zfill(3)}")
+        tc.setdefault("status", "Pending")
         for k in required:
             tc.setdefault(k, "")
 
-    return jsonify({"cases": cases, "source": source, "title": parsed["title"], "llm_model": LLM_MODEL})
+    return jsonify({"cases": valid_cases, "source": source, "title": parsed["title"], "llm_model": LLM_MODEL})
 
 
 @app.route("/generate-diagram", methods=["POST"])
