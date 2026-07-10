@@ -12,6 +12,7 @@ Spring Boot handles real Jira creation; this layer proxies to it.
 import os
 import io
 import re
+import sys
 import json
 import hmac
 import hashlib
@@ -401,14 +402,18 @@ def _save_catalog(catalog):
 
 def _analyze_ticket(ticket):
     """Understand a ticket and decide which test case(s) it needs.
-    Returns (matched, missing) — matched catalog entries vs. tags with
-    no existing automated coverage."""
+    Returns (matched, missing) — matched catalog entries (whose backing .robot
+    file genuinely exists on disk) vs. tags with no real coverage yet.
+    A catalog entry pointing at a file that was never actually created counts
+    as MISSING, not matched — AutoBot generates the real file rather than
+    silently trusting a stale catalog record."""
     catalog = _load_catalog()
     tags = ticket.get("robotTags") or ["regression"]
     matched, missing = [], []
     for tag in tags:
         entry = next((c for c in catalog if c.get("tag", "").lower() == tag.lower()), None)
-        if entry:
+        entry_file = os.path.join(BASE, entry["file"]) if entry else None
+        if entry and entry_file and os.path.exists(entry_file):
             matched.append(entry)
         else:
             missing.append(tag)
@@ -688,6 +693,7 @@ Force Tags       {safe_tag}    {ticket['id']}    auto-generated
         "generatedVia": generated_via,
     }
     catalog = _load_catalog()
+    catalog = [c for c in catalog if c.get("tag", "").lower() != tag.lower()]
     catalog.append(entry)
     _save_catalog(catalog)
     return entry
@@ -774,8 +780,16 @@ def _demo_result():
         })
 
 
-def run_robot_tests(test_type, region, env, user):
-    """Run Robot Framework in a thread; fall back to demo on error."""
+def run_robot_tests(test_type, region, env, user, target_files=None):
+    """Run Robot Framework in a thread; fall back to demo data if Robot
+    Framework isn't actually installed/runnable.
+
+    target_files: for ticket-based runs, the exact list of resolved .robot
+    file paths to execute (the ticket's matched + freshly-generated scripts)
+    — NOT a fuzzy `--include <tag>` guess across the whole tests directory.
+    If omitted (suite-based runs from chat.html), falls back to the old
+    behaviour of including everything under TESTS_DIR tagged with test_type.
+    """
     global execution_state
 
     with _state_lock:
@@ -786,6 +800,7 @@ def run_robot_tests(test_type, region, env, user):
             "region":      region,
             "env":         env,
             "user":        user,
+            "mode":        None,   # set to "real" or "demo" once we know
             "started_at":  _now(),
             "finished_at": None,
             "duration_s":  0,
@@ -794,35 +809,52 @@ def run_robot_tests(test_type, region, env, user):
 
     _add_feed(user, f"started {test_type} · {region} · {env}", "run")
 
-    cmd = [
-        "python", "-m", "robot",
-        "--outputdir", RESULTS_DIR,
-        "--variable",  f"REGION:{region}",
-        "--variable",  f"ENV:{env}",
-        "--include",   test_type.lower(),
-        TESTS_DIR,
-    ]
+    if target_files:
+        cmd = [
+            sys.executable, "-m", "robot",
+            "--outputdir", RESULTS_DIR,
+            "--variable",  f"REGION:{region}",
+            "--variable",  f"ENV:{env}",
+        ] + target_files
+    else:
+        cmd = [
+            sys.executable, "-m", "robot",
+            "--outputdir", RESULTS_DIR,
+            "--variable",  f"REGION:{region}",
+            "--variable",  f"ENV:{env}",
+            "--include",   test_type.lower(),
+            TESTS_DIR,
+        ]
     try:
         subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if os.path.exists(os.path.join(RESULTS_DIR, "output.xml")):
             _parse_output_xml()
+            with _state_lock:
+                execution_state["mode"] = "real"
         else:
-            # Robot Framework isn't actually installed/runnable — use demo data
-            # so runs triggered from a ticket (jira.html / dashboard.html) still
-            # produce a result instead of an empty 0/0/0 run.
+            # Robot Framework isn't actually installed/runnable on this
+            # machine — use demo data so the UI still gets a result instead
+            # of an empty 0/0/0 run. This is clearly marked, not silently
+            # passed off as a genuine execution.
             _demo_result()
+            with _state_lock:
+                execution_state["mode"] = "demo"
     except FileNotFoundError:
         _demo_result()
+        with _state_lock:
+            execution_state["mode"] = "demo"
     except subprocess.TimeoutExpired:
         with _state_lock:
             execution_state["failures"].append({
                 "name": "TIMEOUT", "message": "Run exceeded 600s."
             })
+            execution_state["mode"] = "real"
     except Exception as e:
         with _state_lock:
             execution_state["failures"].append({
                 "name": "RUNNER_ERROR", "message": str(e)
             })
+            execution_state["mode"] = "demo"
 
     finished = datetime.utcnow()
     started  = datetime.fromisoformat(execution_state["started_at"])
@@ -951,6 +983,7 @@ def confirm_run():
     env       = params.get("env", "DEV")
 
     analysis = None
+    target_files = None
 
     # ── Ticket-based run: understand the ticket before running ────────────
     # 1) load the ticket, 2) check the test catalog (data source) for each
@@ -981,10 +1014,12 @@ def confirm_run():
             _save_tickets(tickets)
             test_type = ticket_id
             analysis = {"matchedTests": matched, "generated": generated, "note": note}
+            # Run exactly the resolved scripts — matched (real, on-disk) + newly generated.
+            target_files = [os.path.join(BASE, e["file"]) for e in (matched + generated)]
 
     t = threading.Thread(
         target=run_robot_tests,
-        args=(test_type, region, env, user),
+        args=(test_type, region, env, user, target_files),
         daemon=True,
     )
     t.start()
@@ -1230,9 +1265,10 @@ def run_ticket_script(ticket_id):
     tickets[idx] = t
     _save_tickets(tickets)
 
+    target_files = [os.path.join(BASE, e["file"]) for e in (matched + generated)]
     thread = threading.Thread(
         target=run_robot_tests,
-        args=(ticket_id, region, env, user),
+        args=(ticket_id, region, env, user, target_files),
         daemon=True,
     )
     thread.start()
