@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AutoBot · Admin Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#050810;--s1:#09111f;--s2:#0d1727;--s3:#111e31;
+      --border:rgba(255,255,255,.06);--b2:rgba(79,142,247,.2);
+      --accent:#4f8ef7;--a2:#38bdf8;--glow:rgba(79,142,247,.18);
+      --text:#f1f5f9;--muted:#4b5c72;--m2:#64748b;
+      --pass:#22c55e;--fail:#f43f5e;--skip:#f59e0b;--purple:#a78bfa;
+      --font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+      --sidebar:224px;--header:52px;
+    }
+    html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);overflow:hidden;}
+    ::-webkit-scrollbar{width:3px;}
+    ::-webkit-scrollbar-thumb{background:rgba(79,142,247,.12);border-radius:99px;}
+
+    .shell{display:grid;grid-template-columns:var(--sidebar) 1fr;grid-template-rows:var(--header) 1fr;height:100vh;}
+
+    /* SIDEBAR */
+    .sidebar{grid-row:1/-1;background:var(--s1);border-right:1px solid var(--border);
+      display:flex;flex-direction:column;overflow:hidden;}
+    .sb-brand{padding:16px 18px;border-bottom:1px solid var(--border);
+      display:flex;align-items:center;gap:10px;flex-shrink:0;}
+    .sb-ico{width:30px;height:30px;background:linear-gradient(135deg,var(--accent),var(--a2));
+      border-radius:8px;display:flex;align-items:center;justify-content:center;
+      box-shadow:0 0 12px var(--glow);}
+    .sb-name{font-size:13px;font-weight:800;letter-spacing:.5px;}
+    .sb-tag{font-family:var(--mono);font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;}
+    .sb-nav{flex:1;padding:10px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;}
+    .nav-sec{font-family:var(--mono);font-size:8px;color:var(--muted);
+      text-transform:uppercase;letter-spacing:2px;padding:10px 8px 5px;}
+    .nav-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;
+      cursor:pointer;font-size:12px;font-weight:500;color:var(--m2);
+      transition:all .15s;border:1px solid transparent;}
+    .nav-item:hover{background:rgba(255,255,255,.04);color:var(--text);}
+    .nav-item.active{background:rgba(79,142,247,.1);color:var(--accent);border-color:rgba(79,142,247,.18);}
+    .nav-item i{width:14px;text-align:center;font-size:12px;}
+    .sb-foot{padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0;}
+    .sb-user{display:flex;align-items:center;gap:9px;}
+    .sb-av{width:28px;height:28px;border-radius:8px;flex-shrink:0;
+      background:linear-gradient(135deg,var(--accent),var(--a2));
+      display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+    .sb-uname{font-size:12px;font-weight:600;}
+    .sb-urole{font-family:var(--mono);font-size:9px;color:var(--accent);text-transform:uppercase;}
+    .sb-logout{margin-top:10px;width:100%;background:rgba(244,63,94,.07);
+      border:1px solid rgba(244,63,94,.2);color:var(--fail);border-radius:8px;padding:8px;
+      font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;cursor:pointer;transition:all .15s;}
+    .sb-logout:hover{background:rgba(244,63,94,.14);}
+
+    /* HEADER */
+    header{background:rgba(5,8,16,.92);border-bottom:1px solid var(--border);
+      backdrop-filter:blur(16px);padding:0 22px;
+      display:flex;align-items:center;gap:14px;position:relative;z-index:100;}
+    .h-title{font-size:15px;font-weight:800;}
+    .h-sub{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-top:1px;}
+    .h-sep{flex:1;}
+    .h-refresh{background:rgba(255,255,255,.04);border:1px solid var(--border);
+      border-radius:8px;padding:6px 12px;font-family:var(--mono);font-size:10px;
+      color:var(--muted);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:6px;}
+    .h-refresh:hover{border-color:var(--b2);color:var(--accent);}
+    .h-time{font-family:var(--mono);font-size:10px;color:var(--muted);
+      background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:5px 12px;}
+    .admin-badge{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);
+      color:var(--skip);border-radius:8px;padding:5px 12px;
+      font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;}
+
+    /* MAIN */
+    main{overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:16px;}
+    .page{display:none;}
+    .page.active{display:flex;flex-direction:column;gap:16px;}
+
+    /* CARD */
+    .card{background:var(--s2);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+    .card-hd{padding:12px 16px;border-bottom:1px solid var(--border);
+      background:rgba(255,255,255,.015);display:flex;align-items:center;justify-content:space-between;}
+    .card-title{font-family:var(--mono);font-size:9px;font-weight:600;
+      color:var(--muted);text-transform:uppercase;letter-spacing:2px;
+      display:flex;align-items:center;gap:7px;}
+    .card-body{padding:16px;}
+
+    /* KPI */
+    .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+    .kpi-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+    .kpi{background:var(--s2);border:1px solid var(--border);border-radius:12px;
+      padding:16px;position:relative;overflow:hidden;transition:border-color .2s;}
+    .kpi:hover{border-color:var(--b2);}
+    .kpi::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;border-radius:2px;}
+    .kpi.blue::after{background:var(--accent);}
+    .kpi.green::after{background:var(--pass);}
+    .kpi.red::after{background:var(--fail);}
+    .kpi.yellow::after{background:var(--skip);}
+    .kpi.purple::after{background:var(--purple);}
+    .kpi-label{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;}
+    .kpi-val{font-size:32px;font-weight:800;line-height:1;}
+    .kpi.blue   .kpi-val{color:var(--accent);}
+    .kpi.green  .kpi-val{color:var(--pass);}
+    .kpi.red    .kpi-val{color:var(--fail);}
+    .kpi.yellow .kpi-val{color:var(--skip);}
+    .kpi.purple .kpi-val{color:var(--purple);}
+    .kpi-sub{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:6px;}
+    .kpi-ico{position:absolute;right:14px;top:14px;font-size:20px;opacity:.06;}
+
+    /* GRIDS */
+    .two-col  {display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+
+    /* USER TABLE */
+    .user-table{width:100%;border-collapse:separate;border-spacing:0 4px;}
+    .user-table th{text-align:left;font-family:var(--mono);font-size:9px;color:var(--muted);
+      text-transform:uppercase;letter-spacing:1px;padding:0 12px 6px;}
+    .user-table td{padding:10px 12px;background:rgba(255,255,255,.02);}
+    .user-table tr td:first-child{border-radius:9px 0 0 9px;}
+    .user-table tr td:last-child{border-radius:0 9px 9px 0;}
+    .user-table tbody tr{transition:background .15s;cursor:pointer;}
+    .user-table tbody tr:hover td{background:rgba(79,142,247,.06);}
+    .u-av{width:26px;height:26px;border-radius:7px;flex-shrink:0;
+      display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+    .u-av.tester{background:linear-gradient(135deg,var(--accent),var(--a2));}
+    .u-av.admin {background:linear-gradient(135deg,#f59e0b,#d97706);}
+    .u-av.dev   {background:linear-gradient(135deg,var(--purple),#7c3aed);}
+    .u-row-name{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;}
+    .badge{font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 7px;border-radius:5px;text-transform:uppercase;}
+    .badge.pass   {background:rgba(34,197,94,.12); color:var(--pass);}
+    .badge.fail   {background:rgba(244,63,94,.12); color:var(--fail);}
+    .badge.admin  {background:rgba(245,158,11,.12);color:var(--skip);}
+    .badge.user   {background:rgba(79,142,247,.12);color:var(--accent);}
+    .badge.dev    {background:rgba(167,139,250,.12);color:var(--purple);}
+    .mini-bar-wrap{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;}
+    .mini-bar{height:4px;border-radius:99px;background:rgba(255,255,255,.06);flex:1;overflow:hidden;}
+    .mini-fill{height:100%;border-radius:99px;}
+    .mini-fill.pass{background:var(--pass);}
+    .mini-fill.med {background:var(--skip);}
+    .mini-fill.fail{background:var(--fail);}
+
+    /* RUN TABLE */
+    .run-table{width:100%;border-collapse:separate;border-spacing:0 4px;font-family:var(--mono);font-size:10px;}
+    .run-table th{text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:1px;padding:0 10px 6px;}
+    .run-table td{padding:9px 10px;background:rgba(255,255,255,.02);}
+    .run-table tr td:first-child{border-radius:8px 0 0 8px;}
+    .run-table tr td:last-child{border-radius:0 8px 8px 0;}
+    .run-table tbody tr:hover td{background:rgba(255,255,255,.04);}
+
+    /* JIRA TABLE */
+    .jira-list{display:flex;flex-direction:column;gap:4px;}
+    .jrow{padding:10px 14px;background:rgba(255,255,255,.02);border-radius:9px;
+      border-left:2px solid var(--fail);display:flex;align-items:center;gap:12px;
+      font-family:var(--mono);font-size:10px;transition:background .15s;}
+    .jrow:hover{background:rgba(244,63,94,.05);}
+    .jkey {color:var(--fail);font-weight:700;flex-shrink:0;min-width:70px;}
+    .jname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);}
+    .jmeta{color:var(--muted);flex-shrink:0;text-align:right;font-size:9px;}
+    .jpri{font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;flex-shrink:0;}
+    .jpri.critical{background:rgba(244,63,94,.15); color:var(--fail);}
+    .jpri.high    {background:rgba(245,158,11,.12);color:var(--skip);}
+    .jpri.medium  {background:rgba(79,142,247,.12);color:var(--accent);}
+    .jpri.low     {background:rgba(34,197,94,.1);  color:var(--pass);}
+    .run-ticket-btn{background:rgba(34,197,94,.1);color:var(--pass);border:1px solid rgba(34,197,94,.3);
+      border-radius:6px;padding:5px 10px;font-size:10px;font-weight:700;cursor:pointer;
+      display:flex;align-items:center;gap:5px;font-family:var(--font);white-space:nowrap;transition:background .15s;}
+    .run-ticket-btn:hover{background:rgba(34,197,94,.2);}
+
+    /* REQUESTS TABLE */
+    .req-list{display:flex;flex-direction:column;gap:4px;}
+    .rrow{padding:10px 14px;background:rgba(255,255,255,.02);border-radius:9px;
+      border-left:2px solid var(--purple);display:flex;align-items:center;gap:12px;
+      font-family:var(--mono);font-size:10px;transition:background .15s;}
+    .rrow:hover{background:rgba(167,139,250,.05);}
+    .rkey {color:var(--purple);font-weight:700;flex-shrink:0;min-width:75px;}
+    .rname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);}
+    .rst {font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;flex-shrink:0;}
+    .rst.open      {background:rgba(167,139,250,.12);color:var(--purple);}
+    .rst.inprogress{background:rgba(79,142,247,.12); color:var(--accent);}
+    .rst.done      {background:rgba(34,197,94,.12);  color:var(--pass);}
+
+    /* FEED */
+    .feed{flex:1;overflow-y:auto;padding:10px 14px;font-family:var(--mono);font-size:10px;
+      display:flex;flex-direction:column;gap:4px;max-height:400px;}
+    .feed-entry{display:flex;gap:10px;align-items:flex-start;padding:5px 0;
+      border-bottom:1px solid rgba(255,255,255,.03);}
+    .feed-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:4px;}
+    .feed-time{color:var(--muted);flex-shrink:0;font-size:9px;padding-top:1px;}
+    .feed-user{color:var(--accent);}
+
+    /* CHART */
+    .chart-wrap{padding:14px;}
+    canvas{max-height:180px;}
+    .empty{padding:28px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--muted);}
+
+    /* USER DETAIL MODAL */
+    .modal-bg{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.88);
+      backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;padding:20px;}
+    .modal-bg.open{display:flex;animation:fi .2s ease;}
+    @keyframes fi{from{opacity:0}to{opacity:1}}
+    .modal{background:var(--s2);border:1px solid var(--b2);border-radius:18px;padding:28px;
+      width:100%;max-width:540px;box-shadow:0 40px 80px rgba(0,0,0,.6);
+      animation:su .22s cubic-bezier(.22,1,.36,1);}
+    @keyframes su{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+    .modal-x{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;
+      width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);}
+    .modal-x:hover{background:rgba(244,63,94,.1);color:var(--fail);}
+
+    .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(10px);
+      background:var(--s2);border:1px solid var(--border);border-radius:9px;
+      padding:9px 16px;font-family:var(--mono);font-size:11px;
+      opacity:0;pointer-events:none;transition:all .3s;z-index:999;}
+    .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-ico">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8">
+          <rect x="3" y="8" width="18" height="13" rx="3"/>
+          <path d="M8 8V6a4 4 0 0 1 8 0v2"/>
+          <circle cx="9" cy="14" r="1.5" fill="white" stroke="none"/>
+          <circle cx="15" cy="14" r="1.5" fill="white" stroke="none"/>
+          <path d="M9 18h6" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div><div class="sb-name">AutoBot</div><div class="sb-tag">Admin Panel</div></div>
+    </div>
+    <div class="sb-nav">
+      <div class="nav-sec">Overview</div>
+      <div class="nav-item active" onclick="showPage('overview',this)"><i class="fas fa-tachometer-alt"></i> Dashboard</div>
+      <div class="nav-item" onclick="showPage('users',this)"><i class="fas fa-users"></i> All Users</div>
+      <div class="nav-sec">Test Operations</div>
+      <div class="nav-item" onclick="showPage('runs',this)"><i class="fas fa-play-circle"></i> Run History</div>
+      <div class="nav-item" onclick="showPage('jira',this)"><i class="fas fa-bug"></i> Jira Registry</div>
+      <div class="nav-item" onclick="showPage('requests',this)"><i class="fas fa-file-code"></i> Script Requests</div>
+      <div class="nav-sec">Analytics</div>
+      <div class="nav-item" onclick="showPage('analytics',this)"><i class="fas fa-chart-line"></i> Analytics</div>
+      <div class="nav-item" onclick="showPage('live',this)"><i class="fas fa-broadcast-tower"></i> Live Feed</div>
+    </div>
+    <div class="sb-foot">
+      <div class="sb-user">
+        <div class="sb-av" id="sb-av">A</div>
+        <div><div class="sb-uname" id="sb-uname">Admin</div><div class="sb-urole">Full Access</div></div>
+      </div>
+      <button class="sb-logout" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Sign Out</button>
+    </div>
+  </nav>
+
+  <!-- HEADER -->
+  <header>
+    <div><div class="h-title" id="h-title">Dashboard</div><div class="h-sub" id="h-sub">Overview of all automation activity</div></div>
+    <div class="h-sep"></div>
+    <div class="admin-badge"><i class="fas fa-shield-alt"></i> Admin</div>
+    <button class="h-refresh" onclick="loadAll()"><i class="fas fa-sync-alt"></i> Refresh</button>
+    <div class="h-time" id="h-time">—</div>
+  </header>
+
+  <!-- MAIN -->
+  <main id="main">
+
+    <!-- OVERVIEW -->
+    <div class="page active" id="page-overview">
+      <div class="kpi-grid">
+        <div class="kpi blue">  <div class="kpi-label">Total Runs</div>  <div class="kpi-val" id="kpi-runs">0</div> <div class="kpi-sub">All time</div><i class="fas fa-play-circle kpi-ico"></i></div>
+        <div class="kpi green"> <div class="kpi-label">Tests Executed</div><div class="kpi-val" id="kpi-tests">0</div><div class="kpi-sub" id="kpi-pr">—% pass rate</div><i class="fas fa-check-circle kpi-ico"></i></div>
+        <div class="kpi red">   <div class="kpi-label">Bugs Raised</div> <div class="kpi-val" id="kpi-bugs">0</div> <div class="kpi-sub">All users</div><i class="fas fa-bug kpi-ico"></i></div>
+        <div class="kpi purple"><div class="kpi-label">Script Requests</div><div class="kpi-val" id="kpi-reqs">0</div><div class="kpi-sub" id="kpi-reqs-sub">Open requests</div><i class="fas fa-file-code kpi-ico"></i></div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-hd"><span class="card-title"><i class="fas fa-chart-bar" style="color:var(--accent)"></i> Pass / Fail Trend</span></div>
+          <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-hd"><span class="card-title"><i class="fas fa-chart-pie" style="color:var(--a2)"></i> Results Breakdown</span></div>
+          <div class="chart-wrap" style="display:flex;align-items:center;gap:18px;">
+            <div style="width:120px;height:120px;position:relative;flex-shrink:0;">
+              <canvas id="pie-chart"></canvas>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                <div style="font-size:18px;font-weight:800;color:var(--pass)" id="pie-pct">—%</div>
+                <div style="font-family:var(--mono);font-size:8px;color:var(--muted)">pass rate</div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <div style="font-family:var(--mono);font-size:11px;display:flex;align-items:center;gap:8px;"><span style="width:9px;height:9px;border-radius:50%;background:var(--pass);display:inline-block"></span>Passed <b id="pie-p" style="margin-left:4px">0</b></div>
+              <div style="font-family:var(--mono);font-size:11px;display:flex;align-items:center;gap:8px;"><span style="width:9px;height:9px;border-radius:50%;background:var(--fail);display:inline-block"></span>Failed <b id="pie-f" style="margin-left:4px">0</b></div>
+              <div style="font-family:var(--mono);font-size:11px;display:flex;align-items:center;gap:8px;"><span style="width:9px;height:9px;border-radius:50%;background:var(--skip);display:inline-block"></span>Skipped <b id="pie-s" style="margin-left:4px">0</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-hd">
+          <span class="card-title"><i class="fas fa-trophy" style="color:var(--skip)"></i> All Users — Quick View</span>
+          <span onclick="showPage('users',document.querySelectorAll('.nav-item')[1])" style="font-family:var(--mono);font-size:10px;color:var(--accent);cursor:pointer">View All →</span>
+        </div>
+        <div class="card-body" style="padding:8px 14px">
+          <table class="user-table"><thead><tr><th>User</th><th>Role</th><th>Runs</th><th>Tests</th><th>Pass Rate</th><th>Bugs</th><th>Requests</th><th>Last Active</th></tr></thead>
+          <tbody id="top-users-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- USERS -->
+    <div class="page" id="page-users">
+      <div class="card">
+        <div class="card-hd"><span class="card-title"><i class="fas fa-users" style="color:var(--accent)"></i> All Users — Full Breakdown</span></div>
+        <div class="card-body" style="padding:8px 14px;overflow-x:auto">
+          <table class="user-table"><thead><tr>
+            <th>User</th><th>Role</th><th>Runs</th><th>Tests</th>
+            <th>Passed</th><th>Failed</th><th>Pass Rate</th>
+            <th>Bugs Raised</th><th>Pending Bugs</th><th>Script Requests</th><th>Last Active</th>
+          </tr></thead><tbody id="all-users-body"></tbody></table>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="card"><div class="card-hd"><span class="card-title"><i class="fas fa-bug" style="color:var(--fail)"></i> Bugs by User</span></div><div class="chart-wrap"><canvas id="bugs-user-chart"></canvas></div></div>
+        <div class="card"><div class="card-hd"><span class="card-title"><i class="fas fa-layer-group" style="color:var(--a2)"></i> Runs by User</span></div><div class="chart-wrap"><canvas id="runs-user-chart"></canvas></div></div>
+      </div>
+    </div>
+
+    <!-- RUNS -->
+    <div class="page" id="page-runs">
+      <div class="card">
+        <div class="card-hd">
+          <span class="card-title"><i class="fas fa-history" style="color:var(--accent)"></i> All Run History</span>
+          <span id="run-count-badge" style="font-family:var(--mono);font-size:9px;background:rgba(79,142,247,.1);color:var(--accent);padding:2px 8px;border-radius:5px;font-weight:600">0 runs</span>
+        </div>
+        <div class="card-body" style="padding:8px 14px;overflow-x:auto">
+          <table class="run-table"><thead><tr>
+            <th>#</th><th>User</th><th>Suite</th><th>Region</th><th>Env</th>
+            <th>Total</th><th>Pass</th><th>Fail</th><th>Pass %</th><th>Duration</th><th>Time</th>
+          </tr></thead><tbody id="run-history-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- JIRA -->
+    <div class="page" id="page-jira">
+      <div class="kpi-grid-3">
+        <div class="kpi blue">  <div class="kpi-label">Total Bugs</div>   <div class="kpi-val" id="j-total">0</div>   <div class="kpi-sub">All raised defects</div><i class="fas fa-ticket-alt kpi-ico"></i></div>
+        <div class="kpi red">   <div class="kpi-label">Critical/High</div><div class="kpi-val" id="j-critical">0</div><div class="kpi-sub">Needs attention</div><i class="fas fa-exclamation-circle kpi-ico"></i></div>
+        <div class="kpi yellow"><div class="kpi-label">Unique Raisers</div><div class="kpi-val" id="j-users">0</div>  <div class="kpi-sub">Different testers</div><i class="fas fa-user-tag kpi-ico"></i></div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><span class="card-title"><i class="fas fa-bug" style="color:var(--fail)"></i> All Bugs Raised</span></div>
+        <div class="card-body" style="max-height:420px;overflow-y:auto">
+          <div class="jira-list" id="jira-list"><div class="empty">No bugs raised yet.</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-hd"><span class="card-title"><i class="fas fa-ticket-alt" style="color:var(--accent)"></i> Mock Tickets — run from here or from Jira</span></div>
+        <div class="card-body" style="max-height:420px;overflow-y:auto">
+          <div class="jira-list" id="tickets-panel-body"><div class="empty">Loading…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCRIPT REQUESTS -->
+    <div class="page" id="page-requests">
+      <div class="kpi-grid-3">
+        <div class="kpi purple"><div class="kpi-label">Total Requests</div><div class="kpi-val" id="sr-total">0</div><div class="kpi-sub">All time</div><i class="fas fa-file-code kpi-ico"></i></div>
+        <div class="kpi blue">  <div class="kpi-label">Open</div>         <div class="kpi-val" id="sr-open">0</div> <div class="kpi-sub">Awaiting dev action</div><i class="fas fa-inbox kpi-ico"></i></div>
+        <div class="kpi green"> <div class="kpi-label">Completed</div>    <div class="kpi-val" id="sr-done">0</div> <div class="kpi-sub">Scripts delivered</div><i class="fas fa-check-circle kpi-ico"></i></div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><span class="card-title"><i class="fas fa-file-code" style="color:var(--purple)"></i> All Script Requests — Raised by Testers</span></div>
+        <div class="card-body" style="max-height:420px;overflow-y:auto">
+          <div class="req-list" id="req-list"><div class="empty">No requests yet.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANALYTICS -->
+    <div class="page" id="page-analytics">
+      <div class="three-col">
+        <div class="card"><div class="card-hd"><span class="card-title"><i class="fas fa-chart-bar" style="color:var(--accent)"></i> Runs by Suite</span></div><div class="chart-wrap"><canvas id="suite-chart"></canvas></div></div>
+        <div class="card"><div class="card-hd"><span class="card-title"><i class="fas fa-globe" style="color:var(--a2)"></i> Runs by Region</span></div><div class="chart-wrap"><canvas id="region-chart"></canvas></div></div>
+        <div class="card"><div class="card-hd"><span class="card-title"><i class="fas fa-server" style="color:var(--skip)"></i> Runs by Env</span></div><div class="chart-wrap"><canvas id="env-chart"></canvas></div></div>
+      </div>
+      <div class="two-col">
+        <div class="card"><div class="card-hd"><span class="card-title"><i class="fas fa-chart-line" style="color:var(--pass)"></i> Pass Rate Over Time</span></div><div class="chart-wrap"><canvas id="passrate-chart"></canvas></div></div>
+        <div class="card"><div class="card-hd"><span class="card-title"><i class="fas fa-file-code" style="color:var(--purple)"></i> Script Requests by Type</span></div><div class="chart-wrap"><canvas id="req-type-chart"></canvas></div></div>
+      </div>
+    </div>
+
+    <!-- LIVE FEED -->
+    <div class="page" id="page-live">
+      <div class="card" style="flex:1">
+        <div class="card-hd">
+          <span class="card-title">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--pass);box-shadow:0 0 6px var(--pass);display:inline-block;animation:blink 2s infinite"></span>
+            Live Activity Feed
+          </span>
+          <button onclick="document.getElementById('feed-body').innerHTML=''" style="font-family:var(--mono);font-size:9px;background:none;border:none;color:var(--muted);cursor:pointer;text-transform:uppercase">Clear</button>
+        </div>
+        <div class="feed" id="feed-body"><div class="empty">Loading events…</div></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- USER DETAIL MODAL -->
+<div class="modal-bg" id="umodal">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="sb-av" id="um-av" style="width:40px;height:40px;font-size:16px">U</div>
+        <div>
+          <div style="font-size:18px;font-weight:800" id="um-title">User</div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px" id="um-rtag">Role</div>
+        </div>
+      </div>
+      <div class="modal-x" onclick="closeUM()"><i class="fas fa-times"></i></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px" id="um-stats"></div>
+    <div style="font-family:var(--mono);font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recent Bugs</div>
+    <div id="um-bugs" style="max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;margin-bottom:12px"></div>
+    <div style="font-family:var(--mono);font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Script Requests</div>
+    <div id="um-reqs" style="max-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* AUTH */
+const ME = localStorage.getItem('ab_user');
+const ROLE = localStorage.getItem('ab_role');
+if (!ME) window.location.href = '/';
+if (ROLE !== 'admin') window.location.href = '/chat.html';
+
+/* PAGE META */
+const PAGE_META = {
+  overview: {title:'Dashboard',        sub:'Overview of all automation activity'},
+  users:    {title:'All Users',         sub:'Per-user test stats, bugs and requests'},
+  runs:     {title:'Run History',       sub:'Every test run across all users'},
+  jira:     {title:'Jira Registry',    sub:'All raised defects and their status'},
+  requests: {title:'Script Requests',  sub:'Requests raised by testers for new automation scripts'},
+  analytics:{title:'Analytics',        sub:'Trends, breakdowns and insights'},
+  live:     {title:'Live Activity Feed',sub:'Real-time events from all users'},
+};
+
+/* DEMO DATA */
+const DEMO_USERS = [
+  {name:'qa',     role:'user',  runs:14, tests:312, passed:289, failed:21, skipped:2, bugs:8,  pending:2, requests:3, lastActive:'2 min ago'},
+  {name:'tester', role:'user',  runs:9,  tests:210, passed:195, failed:13, skipped:2, bugs:5,  pending:1, requests:3, lastActive:'1 hr ago'},
+  {name:'dev',    role:'dev',   runs:0,  tests:0,   passed:0,   failed:0,  skipped:0, bugs:4,  pending:4, requests:0, lastActive:'30 min ago'},
+  {name:'admin',  role:'admin', runs:3,  tests:75,  passed:72,  failed:3,  skipped:0, bugs:2,  pending:0, requests:0, lastActive:'Just now'},
+];
+const DEMO_RUNS = [
+  {id:1,user:'qa',    suite:'Sanity',     region:'US',  env:'PROD', total:24,passed:23,failed:1,skipped:0,duration:47, timestamp:'10:32 AM'},
+  {id:2,user:'tester',suite:'Regression', region:'EU',  env:'DEV',  total:58,passed:52,failed:6,skipped:0,duration:184,timestamp:'10:15 AM'},
+  {id:3,user:'qa',    suite:'Smoke',      region:'APAC',env:'STAGE',total:12,passed:12,failed:0,skipped:0,duration:28, timestamp:'09:55 AM'},
+  {id:4,user:'admin', suite:'E2E',        region:'US',  env:'UAT',  total:30,passed:28,failed:2,skipped:0,duration:92, timestamp:'09:30 AM'},
+  {id:5,user:'tester',suite:'Sanity',     region:'US',  env:'PROD', total:24,passed:22,failed:2,skipped:0,duration:51, timestamp:'Yesterday'},
+  {id:6,user:'qa',    suite:'Performance',region:'EU',  env:'PROD', total:10,passed:9, failed:1,skipped:0,duration:320,timestamp:'Yesterday'},
+];
+const DEMO_BUGS = [
+  {key:'QA-1001',name:'Login_Validation_Flow', priority:'Critical',user:'qa',    env:'PROD', time:'10:33 AM'},
+  {key:'QA-1002',name:'API_Auth_Token_Check',  priority:'High',    user:'tester',env:'DEV',  time:'10:16 AM'},
+  {key:'QA-1003',name:'Checkout_Flow_Failure', priority:'High',    user:'tester',env:'DEV',  time:'10:16 AM'},
+  {key:'QA-1004',name:'Dashboard_Load_Timeout',priority:'Medium',  user:'qa',    env:'STAGE',time:'10:00 AM'},
+  {key:'QA-1005',name:'Payment_Gateway_Error', priority:'Critical',user:'admin', env:'UAT',  time:'09:31 AM'},
+  {key:'QA-1006',name:'Profile_Update_500',    priority:'High',    user:'qa',    env:'PROD', time:'Yesterday'},
+  {key:'QA-1007',name:'Search_Pagination_Bug', priority:'Medium',  user:'tester',env:'DEV',  time:'Yesterday'},
+];
+const DEMO_REQUESTS = [
+  {ticketId:'REQ-1001',scriptName:'payment_gateway_regression',testType:'Regression',priority:'Critical',requestedBy:'qa',    status:'open',       raisedAt:'2025-05-01T09:00:00Z'},
+  {ticketId:'REQ-1002',scriptName:'user_profile_smoke',        testType:'Smoke',     priority:'High',    requestedBy:'tester',status:'inprogress', raisedAt:'2025-05-02T10:30:00Z'},
+  {ticketId:'REQ-1003',scriptName:'cart_checkout_e2e',         testType:'E2E',       priority:'High',    requestedBy:'qa',    status:'open',       raisedAt:'2025-05-03T11:00:00Z'},
+  {ticketId:'REQ-1004',scriptName:'search_pagination_test',    testType:'Regression',priority:'Medium',  requestedBy:'tester',status:'done',       raisedAt:'2025-05-04T08:00:00Z'},
+  {ticketId:'REQ-1005',scriptName:'api_auth_performance',      testType:'Performance',priority:'Medium', requestedBy:'qa',    status:'open',       raisedAt:'2025-05-05T14:00:00Z'},
+  {ticketId:'REQ-1006',scriptName:'notification_service_sanity',testType:'Sanity',   priority:'Low',     requestedBy:'tester',status:'inprogress', raisedAt:'2025-05-06T09:30:00Z'},
+];
+
+let charts   = {};
+let allRuns  = DEMO_RUNS,  allBugs = DEMO_BUGS;
+let allUsers = DEMO_USERS, allReqs = DEMO_REQUESTS;
+let allTickets = [];  // mock Jira tickets, shared with jira.html via Flask's data/tickets.json
+const ADMIN_ME = localStorage.getItem('ab_user') || 'admin';
+
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('sb-av').textContent    = ME.charAt(0).toUpperCase();
+  document.getElementById('sb-uname').textContent = ME;
+  tickClock(); setInterval(tickClock, 1000);
+  loadAll();
+  startLiveFeed();
+});
+
+function tickClock() { document.getElementById('h-time').textContent = new Date().toLocaleTimeString(); }
+function logout()    { localStorage.clear(); window.location.href = '/'; }
+
+function showPage(id, el) {
+  document.querySelectorAll('.page').forEach(p     => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  if (el) el.classList.add('active');
+  const m = PAGE_META[id] || {};
+  document.getElementById('h-title').textContent = m.title || id;
+  document.getElementById('h-sub').textContent   = m.sub   || '';
+}
+
+async function loadAll() {
+  /* ─────────────────────────────────────────────────────────
+     Real backend API endpoints (Spring Boot on same host):
+       Auth   : POST /api/auth/login
+       Bugs   : GET  /api/registry/my-history?username=
+       Check  : GET  /api/registry/check?testName=
+       Raise  : POST /api/registry/raise?username=
+     Flask (Python runner) endpoints:
+       Runs   : GET  /api/runs
+       Requests: GET /api/script-requests
+     Admin user list comes from Flask /api/admin/users
+  ───────────────────────────────────────────────────────── */
+  try {
+    // Bug registry from Spring Boot — fetch all bugs by iterating known users
+    // (Spring Boot /api/registry/my-history?username= is per-user, no "all" endpoint)
+    // For admin "all bugs" view: fetch each user's history and merge
+    const userNames = allUsers.map(u => u.name);
+    const bugArrays = await Promise.allSettled(
+      userNames.map(u =>
+        fetch(`http://localhost:8080/api/registry/my-history?username=${encodeURIComponent(u)}`)
+          .then(r => r.ok ? r.json() : [])
+          .catch(() => [])
+      )
+    );
+    const mergedBugs = bugArrays.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+    if (mergedBugs.length > 0) {
+      // Normalise field names from BugRegistry entity to what dashboard expects
+      allBugs = mergedBugs.map(b => ({
+        key:          b.jiraKey        || b.key,
+        jiraKey:      b.jiraKey        || b.key,
+        name:         b.testCaseName   || b.name,
+        testCaseName: b.testCaseName   || b.name,
+        priority:     b.priority       || 'Medium',
+        user:         b.raisedBy       || b.user,
+        raisedBy:     b.raisedBy       || b.user,
+        env:          b.env            || '—',
+        status:       b.status         || 'OPEN',
+        time:         b.updatedAt
+                        ? new Date(b.updatedAt).toLocaleTimeString()
+                        : (b.time || '—'),
+      }));
+    }
+  } catch (_) {}
+
+  // Fetch runs + script requests from Flask
+  try {
+    const [runsR, reqsR, usersR, ticketsR] = await Promise.all([
+      fetch('http://localhost:8000/api/runs'),
+      fetch('http://localhost:8000/api/script-requests'),
+      fetch('http://localhost:8080/api/admin/users'),
+      fetch('http://localhost:8000/api/tickets'),
+    ]);
+    if (runsR.ok)    { const d=await runsR.json();    allRuns    = d.runs     || allRuns; }
+    if (reqsR.ok)    { const d=await reqsR.json();    allReqs    = d.requests || allReqs; }
+    if (usersR.ok)   { const d=await usersR.json();   allUsers   = d.users    || allUsers; }
+    if (ticketsR.ok) { const d=await ticketsR.json(); allTickets = d.tickets  || allTickets; }
+  } catch (_) {}
+
+  // If the Spring Boot bug registry above returned nothing, fall back to the
+  // Flask-side bug registry (data/bugs.json) so the dashboard still shows bugs
+  // raised via the mock-Jira "Run" flow even when Spring Boot isn't running.
+  if (!allBugs.length || allBugs === DEMO_BUGS) {
+    try {
+      const r = await fetch('http://localhost:8000/api/registry');
+      if (r.ok) {
+        const d = await r.json();
+        if ((d.bugs || []).length) allBugs = d.bugs;
+      }
+    } catch (_) {}
+  }
+
+  renderAll();
+}
+
+function renderAll() {
+  renderOverview();
+  renderUsers();
+  renderRuns();
+  renderJira();
+  renderTicketsPanel();
+  renderRequests();
+  renderAnalytics();
+}
+
+/* MOCK TICKETS — run a ticket-based script directly from the portal */
+function renderTicketsPanel() {
+  const body = document.getElementById('tickets-panel-body');
+  if (!body) return;
+  if (!allTickets.length) { body.innerHTML = '<div class="empty">No mock tickets yet.</div>'; return; }
+  body.innerHTML = allTickets.map(t => `
+    <div class="jrow" style="align-items:center">
+      <span class="jkey">${esc(t.id)}</span>
+      <span class="jname">${esc(t.title)}</span>
+      <span class="jpri ${(t.priority||'medium').toLowerCase()}">${esc(t.status)}</span>
+      <div class="jmeta" style="min-width:120px">
+        <div style="color:var(--accent)">${esc(t.reporter||'—')}</div>
+        <div>${(t.robotTags||[]).join(', ')}</div>
+      </div>
+      <button class="run-ticket-btn" onclick="runTicketFromPortal('${t.id}')" title="Run automation for ${t.id}">
+        <i class="fas fa-play"></i> Run
+      </button>
+    </div>`).join('');
+}
+
+async function runTicketFromPortal(id) {
+  try {
+    const res = await fetch(`http://localhost:8000/api/tickets/${encodeURIComponent(id)}/run?username=${encodeURIComponent(ADMIN_ME)}`, {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      alert(d.message || `Could not start run for ${id}.`);
+      return;
+    }
+  } catch (_) {
+    alert('Backend unreachable — start Flask on http://localhost:8000 to run tickets from the portal.');
+    return;
+  }
+  // Poll for completion, then refresh runs + tickets
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const s = await fetch('http://localhost:8000/status');
+      const d = await s.json();
+      if (d.status === 'completed') break;
+    } catch (_) { break; }
+  }
+  loadAll();
+}
+
+/* OVERVIEW */
+function renderOverview() {
+  const totTests  = allRuns.reduce((a,r)=>a+r.total,  0);
+  const totPassed = allRuns.reduce((a,r)=>a+r.passed, 0);
+  const totFailed = allRuns.reduce((a,r)=>a+r.failed, 0);
+  const totSkip   = allRuns.reduce((a,r)=>a+(r.skipped||0), 0);
+  const pr = totTests>0 ? Math.round(totPassed/totTests*100) : 0;
+  const openReqs  = allReqs.filter(r=>r.status==='open').length;
+
+  document.getElementById('kpi-runs').textContent     = allRuns.length;
+  document.getElementById('kpi-tests').textContent    = totTests;
+  document.getElementById('kpi-pr').textContent       = pr+'% pass rate';
+  document.getElementById('kpi-bugs').textContent     = allBugs.length;
+  document.getElementById('kpi-reqs').textContent     = allReqs.length;
+  document.getElementById('kpi-reqs-sub').textContent = openReqs+' open';
+  document.getElementById('pie-pct').textContent      = pr+'%';
+  document.getElementById('pie-p').textContent        = totPassed;
+  document.getElementById('pie-f').textContent        = totFailed;
+  document.getElementById('pie-s').textContent        = totSkip;
+
+  killChart('trend-chart');
+  charts['trend-chart'] = new Chart(document.getElementById('trend-chart'),{
+    type:'bar',
+    data:{labels:allRuns.slice(-8).map((_,i)=>'Run '+(i+1)),
+      datasets:[
+        {label:'Passed',data:allRuns.slice(-8).map(r=>r.passed),backgroundColor:'rgba(34,197,94,.5)',borderColor:'#22c55e',borderWidth:1,borderRadius:4},
+        {label:'Failed',data:allRuns.slice(-8).map(r=>r.failed),backgroundColor:'rgba(244,63,94,.5)',borderColor:'#f43f5e',borderWidth:1,borderRadius:4},
+      ]},options:chartOpts()
+  });
+
+  killChart('pie-chart');
+  charts['pie-chart'] = new Chart(document.getElementById('pie-chart'),{
+    type:'doughnut',
+    data:{datasets:[{data:[totPassed||1,totFailed||1,totSkip||1],
+      backgroundColor:['#22c55e','#f43f5e','#f59e0b'],borderWidth:0,hoverOffset:3}]},
+    options:{cutout:'70%',plugins:{legend:{display:false}},maintainAspectRatio:false}
+  });
+
+  renderUserTable('top-users-body', allUsers, false);
+}
+
+/* USERS */
+function renderUsers() {
+  renderUserTable('all-users-body', allUsers, true);
+  const unames    = allUsers.map(u=>u.name);
+  const bugCounts = allUsers.map(u=>allBugs.filter(b=>(b.user||b.raisedBy)===u.name).length);
+  const runCounts = allUsers.map(u=>allRuns.filter(r=>r.user===u.name).length);
+
+  killChart('bugs-user-chart');
+  charts['bugs-user-chart'] = new Chart(document.getElementById('bugs-user-chart'),{
+    type:'bar',data:{labels:unames,datasets:[{label:'Bugs',data:bugCounts,
+      backgroundColor:'rgba(244,63,94,.45)',borderColor:'#f43f5e',borderWidth:1,borderRadius:5}]},options:chartOpts()
+  });
+  killChart('runs-user-chart');
+  charts['runs-user-chart'] = new Chart(document.getElementById('runs-user-chart'),{
+    type:'bar',data:{labels:unames,datasets:[{label:'Runs',data:runCounts,
+      backgroundColor:'rgba(79,142,247,.45)',borderColor:'#4f8ef7',borderWidth:1,borderRadius:5}]},options:chartOpts()
+  });
+}
+
+function renderUserTable(bodyId, users, full) {
+  const body = document.getElementById(bodyId);
+  if (!users.length) { body.innerHTML='<tr><td colspan="11" class="empty">No users.</td></tr>'; return; }
+  body.innerHTML = users.map(u=>{
+    const pr  = u.tests>0 ? Math.round(u.passed/u.tests*100) : 0;
+    const cls = pr>=80?'pass':pr>=50?'med':'fail';
+    const bar = `<div class="mini-bar-wrap"><div class="mini-bar"><div class="mini-fill ${cls}" style="width:${pr}%"></div></div>${pr}%</div>`;
+    const uReqs = allReqs.filter(r=>r.requestedBy===u.name).length;
+    if (full) return `<tr onclick="openUserModal('${u.name}')">
+      <td><div class="u-row-name"><div class="u-av ${u.role}">${u.name.charAt(0).toUpperCase()}</div>${u.name}</div></td>
+      <td><span class="badge ${u.role}">${u.role}</span></td>
+      <td style="font-family:var(--mono)">${u.runs}</td>
+      <td style="font-family:var(--mono)">${u.tests}</td>
+      <td style="font-family:var(--mono);color:var(--pass)">${u.passed}</td>
+      <td style="font-family:var(--mono);color:var(--fail)">${u.failed}</td>
+      <td>${bar}</td>
+      <td style="font-family:var(--mono);color:var(--fail)">${u.bugs}</td>
+      <td style="font-family:var(--mono);color:var(--skip)">${u.pending}</td>
+      <td style="font-family:var(--mono);color:var(--purple)">${uReqs}</td>
+      <td style="font-family:var(--mono);color:var(--muted)">${u.lastActive}</td>
+    </tr>`;
+    return `<tr onclick="openUserModal('${u.name}')">
+      <td><div class="u-row-name"><div class="u-av ${u.role}">${u.name.charAt(0).toUpperCase()}</div>${u.name}</div></td>
+      <td><span class="badge ${u.role}">${u.role}</span></td>
+      <td style="font-family:var(--mono)">${u.runs}</td>
+      <td style="font-family:var(--mono)">${u.tests}</td>
+      <td>${bar}</td>
+      <td style="font-family:var(--mono);color:var(--fail)">${u.bugs}</td>
+      <td style="font-family:var(--mono);color:var(--purple)">${uReqs}</td>
+      <td style="font-family:var(--mono);color:var(--muted)">${u.lastActive}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* RUNS */
+function renderRuns() {
+  const body = document.getElementById('run-history-body');
+  document.getElementById('run-count-badge').textContent = `${allRuns.length} runs`;
+  if (!allRuns.length) { body.innerHTML='<tr><td colspan="11" class="empty">No runs yet.</td></tr>'; return; }
+  body.innerHTML = [...allRuns].reverse().map((r,i)=>{
+    const pr = r.total>0?Math.round(r.passed/r.total*100):0;
+    return `<tr>
+      <td style="color:var(--muted)">${allRuns.length-i}</td>
+      <td><div style="display:flex;align-items:center;gap:7px"><div class="u-av tester" style="width:22px;height:22px;font-size:10px">${r.user.charAt(0).toUpperCase()}</div>${r.user}</div></td>
+      <td style="font-weight:600;color:var(--a2)">${r.suite}</td>
+      <td style="color:var(--pass)">${r.region}</td>
+      <td style="color:var(--skip)">${r.env}</td>
+      <td>${r.total}</td>
+      <td style="color:var(--pass)">${r.passed}</td>
+      <td style="color:var(--fail)">${r.failed}</td>
+      <td><span class="badge ${r.failed>0?'fail':'pass'}">${pr}%</span></td>
+      <td style="color:var(--muted)">${r.duration}s</td>
+      <td style="color:var(--muted)">${r.timestamp}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* JIRA */
+function renderJira() {
+  const ch = allBugs.filter(b=>['Critical','High'].includes(b.priority)).length;
+  const uu = new Set(allBugs.map(b=>b.user||b.raisedBy)).size;
+  document.getElementById('j-total').textContent   = allBugs.length;
+  document.getElementById('j-critical').textContent= ch;
+  document.getElementById('j-users').textContent   = uu;
+  const list = document.getElementById('jira-list');
+  if (!allBugs.length) { list.innerHTML='<div class="empty">No bugs raised yet.</div>'; return; }
+  list.innerHTML = allBugs.map(b=>`
+    <div class="jrow">
+      <span class="jkey">${esc(b.jiraKey||b.key||'—')}</span>
+      <span class="jname">${esc(b.testCaseName||b.name||'—')}</span>
+      <span class="jpri ${(b.priority||'medium').toLowerCase()}">${b.priority||'Medium'}</span>
+      <div class="jmeta">
+        <div style="color:var(--accent)">${esc(b.raisedBy||b.user||'—')}</div>
+        <div>${esc(b.env||'—')} · ${esc(b.time||'')}</div>
+      </div>
+    </div>`).join('');
+}
+
+/* SCRIPT REQUESTS */
+function renderRequests() {
+  const open = allReqs.filter(r=>r.status==='open').length;
+  const done = allReqs.filter(r=>r.status==='done').length;
+  document.getElementById('sr-total').textContent = allReqs.length;
+  document.getElementById('sr-open').textContent  = open;
+  document.getElementById('sr-done').textContent  = done;
+  const list = document.getElementById('req-list');
+  if (!allReqs.length) { list.innerHTML='<div class="empty">No script requests yet.</div>'; return; }
+  list.innerHTML = allReqs.map(r=>`
+    <div class="rrow">
+      <span class="rkey">${r.ticketId}</span>
+      <span class="rname">${esc(r.scriptName)}</span>
+      <span style="font-family:var(--mono);font-size:9px;color:var(--m2);flex-shrink:0">${r.requestedBy}</span>
+      <span style="font-family:var(--mono);font-size:9px;color:var(--m2);flex-shrink:0">${r.testType}</span>
+      <span class="rst ${r.status}">${r.status}</span>
+      <span style="font-family:var(--mono);font-size:9px;color:var(--muted);flex-shrink:0">${r.raisedAt?new Date(r.raisedAt).toLocaleDateString():'—'}</span>
+    </div>`).join('');
+}
+
+/* ANALYTICS */
+function renderAnalytics() {
+  const cnt = (arr,key) => arr.reduce((acc,r)=>{acc[r[key]]=(acc[r[key]]||0)+1;return acc;},{});
+  const byS=cnt(allRuns,'suite'), byR=cnt(allRuns,'region'), byE=cnt(allRuns,'env');
+  function barC(id,labels,data,color){
+    killChart(id);
+    charts[id]=new Chart(document.getElementById(id),{type:'bar',
+      data:{labels,datasets:[{label:'',data,backgroundColor:color+'7a',borderColor:color,borderWidth:1,borderRadius:5}]},
+      options:chartOpts()});
+  }
+  barC('suite-chart',  Object.keys(byS), Object.values(byS), '#4f8ef7');
+  barC('region-chart', Object.keys(byR), Object.values(byR), '#38bdf8');
+  barC('env-chart',    Object.keys(byE), Object.values(byE), '#f59e0b');
+
+  const prData = allRuns.map(r=>r.total>0?Math.round(r.passed/r.total*100):0);
+  killChart('passrate-chart');
+  charts['passrate-chart']=new Chart(document.getElementById('passrate-chart'),{type:'line',
+    data:{labels:allRuns.map((_,i)=>'Run '+(i+1)),
+      datasets:[{label:'Pass Rate %',data:prData,borderColor:'#22c55e',
+        backgroundColor:'rgba(34,197,94,.08)',tension:.4,fill:true,pointRadius:3,pointBackgroundColor:'#22c55e'}]},
+    options:{plugins:{legend:{display:false}},
+      scales:{x:{ticks:{color:'#4b5c72',font:{family:'JetBrains Mono',size:8}},grid:{color:'rgba(255,255,255,.03)'}},
+              y:{min:0,max:100,ticks:{color:'#4b5c72',font:{family:'JetBrains Mono',size:8}},grid:{color:'rgba(255,255,255,.03)'}}},
+      maintainAspectRatio:false}
+  });
+
+  const reqTypes = cnt(allReqs,'testType');
+  killChart('req-type-chart');
+  charts['req-type-chart']=new Chart(document.getElementById('req-type-chart'),{type:'bar',
+    data:{labels:Object.keys(reqTypes),datasets:[{label:'Requests',data:Object.values(reqTypes),
+      backgroundColor:'rgba(167,139,250,.45)',borderColor:'#a78bfa',borderWidth:1,borderRadius:5}]},
+    options:chartOpts()
+  });
+}
+
+/* LIVE FEED */
+const FEED_CLR={run:['var(--accent)','▶'],bug:['var(--fail)','🐛'],pass:['var(--pass)','✓'],fail:['var(--fail)','✗'],req:['var(--purple)','🧪']};
+function addFeed(user,action,type='run'){
+  const feed=document.getElementById('feed-body');
+  if(feed.querySelector('.empty'))feed.innerHTML='';
+  const [color,icon]=FEED_CLR[type]||FEED_CLR.run;
+  const el=document.createElement('div');el.className='feed-entry';
+  el.innerHTML=`<div class="feed-dot" style="background:${color}"></div>
+    <span class="feed-time">${new Date().toLocaleTimeString()}</span>
+    <span><span class="feed-user">${user}</span> <span style="color:var(--text)">${icon} ${action}</span></span>`;
+  feed.prepend(el);while(feed.children.length>80)feed.removeChild(feed.lastChild);
+}
+
+function startLiveFeed(){
+  [
+    ['qa',    'ran Sanity · US · PROD — 24 tests, 23 passed','run'],
+    ['tester','raised bug QA-1002 — API Auth Token Check',   'bug'],
+    ['dev',   'updated REQ-1002 status → In Progress',       'req'],
+    ['qa',    'ran Smoke · APAC · STAGE — all passed',       'pass'],
+    ['tester','raised script request REQ-1003',               'req'],
+    ['tester','ran Regression · EU · DEV — 6 failed',        'fail'],
+    ['admin', 'ran E2E · US · UAT — 30 tests',               'run'],
+    ['qa',    'raised bug QA-1001 — Login Validation Flow',  'bug'],
+  ].forEach((e,i)=>setTimeout(()=>addFeed(...e),(i+1)*220));
+  setInterval(async()=>{
+    try{const res=await fetch('http://localhost:8000/api/feed');if(res.ok){const d=await res.json();(d.events||[]).slice(-5).forEach(e=>addFeed(e.user,e.action,e.type));}}catch(_){}
+  },5000);
+}
+
+/* USER DETAIL MODAL */
+function openUserModal(name){
+  const u=allUsers.find(x=>x.name===name);if(!u)return;
+  const pr=u.tests>0?Math.round(u.passed/u.tests*100):0;
+  const uReqs=allReqs.filter(r=>r.requestedBy===name);
+  const uBugs=allBugs.filter(b=>(b.user||b.raisedBy)===name);
+  document.getElementById('um-av').textContent   =u.name.charAt(0).toUpperCase();
+  document.getElementById('um-av').className     ='sb-av u-av '+u.role;
+  document.getElementById('um-title').textContent=u.name;
+  document.getElementById('um-rtag').textContent =u.role+' · Last active '+u.lastActive;
+  document.getElementById('um-stats').innerHTML=[
+    ['Runs',u.runs,'var(--accent)'],['Tests',u.tests,'var(--text)'],['Pass Rate',pr+'%','var(--pass)'],
+    ['Passed',u.passed,'var(--pass)'],['Failed',u.failed,'var(--fail)'],['Bugs Raised',u.bugs,'var(--fail)'],
+  ].map(([l,v,c])=>`<div style="background:rgba(255,255,255,.03);border-radius:9px;padding:10px;text-align:center">
+    <div style="font-size:20px;font-weight:800;color:${c}">${v}</div>
+    <div style="font-family:var(--mono);font-size:8px;color:var(--muted);text-transform:uppercase;margin-top:3px">${l}</div>
+  </div>`).join('');
+  document.getElementById('um-bugs').innerHTML=uBugs.length
+    ?uBugs.map(b=>`<div class="jrow"><span class="jkey">${b.key||b.jiraKey}</span>
+      <span class="jname">${esc(b.name||b.testCaseName)}</span>
+      <span class="jpri ${(b.priority||'').toLowerCase()}">${b.priority}</span>
+      <span class="jmeta">${b.time||''}</span></div>`).join('')
+    :'<div class="empty">No bugs raised.</div>';
+  document.getElementById('um-reqs').innerHTML=uReqs.length
+    ?uReqs.map(r=>`<div class="rrow"><span class="rkey">${r.ticketId}</span>
+      <span class="rname">${esc(r.scriptName)}</span>
+      <span class="rst ${r.status}">${r.status}</span></div>`).join('')
+    :'<div class="empty">No script requests.</div>';
+  document.getElementById('umodal').classList.add('open');
+}
+function closeUM(){document.getElementById('umodal').classList.remove('open');}
+document.getElementById('umodal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeUM();});
+
+/* UTILS */
+function chartOpts(){return{plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#4b5c72',font:{family:'JetBrains Mono',size:8}},grid:{display:false}},y:{ticks:{color:'#4b5c72',font:{family:'JetBrains Mono',size:8}},grid:{color:'rgba(255,255,255,.03)'}}},maintainAspectRatio:false};}
+function killChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),2800);}
+</script>
+</body>
+</html>

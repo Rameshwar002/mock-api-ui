@@ -1,0 +1,80 @@
+[
+    {
+        "tag": "login",
+        "name": "Login_Validation_Flow",
+        "file": "tests/login_tests.robot",
+        "suite": "Smoke"
+    },
+    {
+        "tag": "auth",
+        "name": "API_Auth_Token_Check",
+        "file": "tests/auth_tests.robot",
+        "suite": "Smoke"
+    },
+    {
+        "tag": "database",
+        "name": "DB_Collation_Check",
+        "file": "tests/database_tests.robot",
+        "suite": "Sanity"
+    },
+    {
+        "tag": "regression",
+        "name": "Regression_Suite",
+        "file": "tests/regression_tests.robot",
+        "suite": "Regression"
+    },
+    {
+        "tag": "sanity",
+        "name": "Sanity_Suite",
+        "file": "tests/sanity_tests.robot",
+        "suite": "Sanity"
+    },
+    {
+        "tag": "smoke",
+        "name": "Smoke_Suite",
+        "file": "tests/smoke_tests.robot",
+        "suite": "Smoke"
+    },
+    {
+        "tag": "payment",
+        "name": "Payment_Gateway_Test",
+        "file": "tests/payment_tests.robot",
+        "suite": "Regression"
+    },
+    {
+        "tag": "checkout",
+        "name": "Checkout_Flow_E2E",
+        "file": "tests/checkout_tests.robot",
+        "suite": "E2E"
+    },
+    {
+        "tag": "profile",
+        "name": "Profile_Update_Test",
+        "file": "tests/profile_tests.robot",
+        "suite": "Regression"
+    },
+    {
+        "tag": "api",
+        "name": "API_Contract_Test",
+        "file": "tests/api_tests.robot",
+        "suite": "Regression"
+    },
+    {
+        "tag": "search",
+        "name": "Search_Results_Test",
+        "file": "tests/search_tests.robot",
+        "suite": "E2E"
+    },
+    {
+        "tag": "pagination",
+        "name": "Pagination_Test",
+        "file": "tests/search_tests.robot",
+        "suite": "E2E"
+    },
+    {
+        "tag": "e2e",
+        "name": "E2E_Suite",
+        "file": "tests/e2e_tests.robot",
+        "suite": "E2E"
+    }
+]

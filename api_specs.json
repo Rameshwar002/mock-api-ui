@@ -1,0 +1,425 @@
+{
+    "applications": [
+        {
+            "name": "Auth Service",
+            "tags": [
+                "auth",
+                "login"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/auth/login",
+                    "method": "POST",
+                    "tags": [
+                        "login",
+                        "auth"
+                    ],
+                    "description": "Authenticate a user and return a session token",
+                    "requires_auth": false,
+                    "request_schema": [
+                        {
+                            "field": "username",
+                            "type": "string",
+                            "required": true,
+                            "example": "demo"
+                        },
+                        {
+                            "field": "password",
+                            "type": "string",
+                            "required": true,
+                            "example": "demo123"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "token",
+                            "type": "string"
+                        },
+                        {
+                            "field": "expires_in",
+                            "type": "integer"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "username or password missing"
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "password is literally 'wrong'",
+                            "payload_patch": {
+                                "password": "wrong"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/auth/token/refresh",
+                    "method": "POST",
+                    "tags": [
+                        "auth"
+                    ],
+                    "description": "Refresh an expired auth token",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "refresh_token",
+                            "type": "string",
+                            "required": true,
+                            "example": "mock-refresh-token-abc"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "token",
+                            "type": "string"
+                        },
+                        {
+                            "field": "expires_in",
+                            "type": "integer"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "refresh_token missing"
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Payment",
+            "tags": [
+                "payment",
+                "checkout"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/payments/charge",
+                    "method": "POST",
+                    "tags": [
+                        "payment"
+                    ],
+                    "description": "Charge a payment method",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "amount",
+                            "type": "number",
+                            "required": true,
+                            "example": 49.99
+                        },
+                        {
+                            "field": "payment_method_id",
+                            "type": "string",
+                            "required": true,
+                            "example": "pm_mock_123"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "charge_id",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        },
+                        {
+                            "field": "amount",
+                            "type": "number"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "amount or payment_method_id missing"
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/checkout/session",
+                    "method": "POST",
+                    "tags": [
+                        "checkout"
+                    ],
+                    "description": "Create a checkout session",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "cart_id",
+                            "type": "string",
+                            "required": true,
+                            "example": "cart_mock_123"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "session_id",
+                            "type": "string"
+                        },
+                        {
+                            "field": "checkout_url",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "cart_id missing"
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "User Profile",
+            "tags": [
+                "profile",
+                "user"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/users/1",
+                    "method": "PUT",
+                    "tags": [
+                        "profile",
+                        "api"
+                    ],
+                    "description": "Update a user's profile. Mock only recognizes ids 1, 2, 3, demo-user.",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "email",
+                            "type": "string",
+                            "required": false,
+                            "example": "user@example.com",
+                            "notes": "must contain '@' if provided"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "id",
+                            "type": "string"
+                        },
+                        {
+                            "field": "email",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "email present but missing '@'",
+                            "payload_patch": {
+                                "email": "not-an-email"
+                            }
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown user id",
+                            "path_override": "/api/v1/users/does-not-exist"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Search",
+            "tags": [
+                "search",
+                "pagination"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/search",
+                    "method": "GET",
+                    "tags": [
+                        "search",
+                        "pagination"
+                    ],
+                    "description": "Search with pagination",
+                    "requires_auth": false,
+                    "request_schema": [
+                        {
+                            "field": "q",
+                            "type": "string",
+                            "required": true,
+                            "example": "test",
+                            "in": "query"
+                        },
+                        {
+                            "field": "page",
+                            "type": "integer",
+                            "required": false,
+                            "example": 1,
+                            "in": "query"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "query",
+                            "type": "string"
+                        },
+                        {
+                            "field": "page",
+                            "type": "integer"
+                        },
+                        {
+                            "field": "results",
+                            "type": "array"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "q missing",
+                            "path_override": "/api/v1/search"
+                        },
+                        {
+                            "status": 400,
+                            "trigger": "page not a positive integer",
+                            "path_override": "/api/v1/search?q=test&page=0"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Database",
+            "tags": [
+                "database"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/health/db",
+                    "method": "GET",
+                    "tags": [
+                        "database"
+                    ],
+                    "description": "Check DB health/collation",
+                    "requires_auth": false,
+                    "request_schema": [],
+                    "success_response": [
+                        {
+                            "field": "status",
+                            "type": "string"
+                        },
+                        {
+                            "field": "collation",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": []
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,122 @@
+[
+    {
+        "id": "IT-6",
+        "title": "Incorrect database collation",
+        "status": "Open",
+        "priority": "Low",
+        "urgency": "Medium",
+        "impact": "Moderate / Limited",
+        "service": "Database",
+        "reporter": "Rachel Wright",
+        "assignee": null,
+        "desc": "I noticed that the MySQL collation in the test environment is <em>utf8_unicode_ci</em>.<br>It should be updated to match the settings in production.",
+        "robotTags": [
+            "database",
+            "regression",
+            "sanity"
+        ],
+        "reqType": "Report a system problem",
+        "severity": "None",
+        "labels": "None",
+        "comments": [],
+        "created": "Today 10:00 AM",
+        "updated": "Today 04:34 PM",
+        "testResults": null
+    },
+    {
+        "id": "IT-7",
+        "title": "Login page 500 error on prod",
+        "status": "In Progress",
+        "priority": "High",
+        "urgency": "High",
+        "impact": "Major",
+        "service": "Auth Service",
+        "reporter": "qa",
+        "assignee": "dev",
+        "desc": "Login endpoint returns HTTP 500 under high load on production environment.",
+        "robotTags": [
+            "login",
+            "auth",
+            "smoke"
+        ],
+        "reqType": "Report a system problem",
+        "severity": "High",
+        "labels": "prod, critical",
+        "comments": [],
+        "created": "Yesterday",
+        "updated": "Today 09:00 AM",
+        "testResults": null
+    },
+    {
+        "id": "IT-8",
+        "title": "Payment gateway timeout",
+        "status": "Open",
+        "priority": "Critical",
+        "urgency": "Critical",
+        "impact": "Extensive",
+        "service": "Payment",
+        "reporter": "tester",
+        "assignee": null,
+        "desc": "Payment gateway times out after 30 seconds during peak hours.",
+        "robotTags": [
+            "payment",
+            "checkout",
+            "regression"
+        ],
+        "reqType": "Report a system problem",
+        "severity": "Critical",
+        "labels": "None",
+        "comments": [],
+        "created": "2 days ago",
+        "updated": "Yesterday",
+        "testResults": null
+    },
+    {
+        "id": "IT-9",
+        "title": "User profile update returns 404",
+        "status": "In Review",
+        "priority": "Medium",
+        "urgency": "Medium",
+        "impact": "Moderate / Limited",
+        "service": "User API",
+        "reporter": "qa",
+        "assignee": "dev",
+        "desc": "PUT /users/profile returns 404 Not Found on staging environment.",
+        "robotTags": [
+            "profile",
+            "api",
+            "regression"
+        ],
+        "reqType": "Report a system problem",
+        "severity": "Medium",
+        "labels": "staging",
+        "comments": [],
+        "created": "3 days ago",
+        "updated": "Today 11:00 AM",
+        "testResults": null
+    },
+    {
+        "id": "IT-10",
+        "title": "Search results pagination broken",
+        "status": "Open",
+        "priority": "Low",
+        "urgency": "Low",
+        "impact": "Minor",
+        "service": "Search",
+        "reporter": "tester",
+        "assignee": null,
+        "desc": "Search results page 2+ returns duplicate items from page 1.",
+        "robotTags": [
+            "search",
+            "pagination",
+            "e2e"
+        ],
+        "reqType": "Report a system problem",
+        "severity": "Low",
+        "labels": "None",
+        "comments": [],
+        "created": "4 days ago",
+        "updated": "4 days ago",
+        "testResults": null
+    }
+]

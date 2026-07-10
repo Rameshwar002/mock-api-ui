@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AutoBot · Mock Jira</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#f4f5f7;--white:#ffffff;--border:#dfe1e6;--border2:#ebecf0;
+      --text:#172b4d;--muted:#6b778c;--muted2:#97a0af;
+      --accent:#0052cc;--accent2:#0065ff;--accentbg:#deebff;
+      --pass:#00875a;--passbg:#e3fcef;--fail:#de350b;--failbg:#ffebe6;
+      --skip:#ff8b00;--skipbg:#fff7d6;--purple:#5243aa;--purplebg:#eae6ff;
+      --tag:#42526e;--tagbg:#ebecf0;
+      --font:'Inter',system-ui,sans-serif;
+    }
+    body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;min-height:100vh;}
+    ::-webkit-scrollbar{width:6px;height:6px;}
+    ::-webkit-scrollbar-thumb{background:#c1c7d0;border-radius:99px;}
+
+    /* ── TOP NAV ── */
+    .jira-nav{
+      background:#0052cc;height:56px;display:flex;align-items:center;
+      padding:0 16px;gap:14px;position:sticky;top:0;z-index:200;
+      box-shadow:0 2px 8px rgba(0,0,0,.2);
+    }
+    .nav-logo{display:flex;align-items:center;gap:8px;color:#fff;font-size:15px;font-weight:700;text-decoration:none;}
+    .nav-logo svg{width:28px;height:28px;}
+    .nav-links{display:flex;align-items:center;gap:2px;margin-left:8px;}
+    .nav-link{color:rgba(255,255,255,.85);padding:0 10px;height:56px;display:flex;align-items:center;
+      gap:5px;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s;border:none;background:none;}
+    .nav-link:hover{background:rgba(255,255,255,.15);color:#fff;}
+    .nav-sep{flex:1;}
+    .nav-search{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);
+      border-radius:4px;padding:6px 12px;color:rgba(255,255,255,.8);font-size:13px;
+      width:200px;outline:none;}
+    .nav-search::placeholder{color:rgba(255,255,255,.6);}
+    .nav-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
+      justify-content:center;cursor:pointer;color:rgba(255,255,255,.85);font-size:14px;
+      transition:background .15s;}
+    .nav-icon:hover{background:rgba(255,255,255,.15);}
+    .nav-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#ff8b00,#ff5630);
+      display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;cursor:pointer;}
+    .create-btn{background:#0065ff;color:#fff;border:none;border-radius:4px;padding:0 14px;
+      height:32px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;white-space:nowrap;}
+    .create-btn:hover{background:#0747a6;}
+
+    /* ── LAYOUT ── */
+    .layout{display:grid;grid-template-columns:260px 1fr 340px;min-height:calc(100vh - 56px);gap:0;}
+
+    /* ── LEFT NAV ── */
+    .left-nav{background:var(--white);border-right:1px solid var(--border);padding:16px 0;overflow-y:auto;}
+    .ln-section{padding:8px 16px 4px;font-size:11px;font-weight:600;color:var(--muted);
+      text-transform:uppercase;letter-spacing:.8px;}
+    .ln-item{display:flex;align-items:center;gap:10px;padding:8px 16px;cursor:pointer;
+      font-size:13px;color:var(--text);transition:background .12s;border-radius:0;}
+    .ln-item:hover{background:#f4f5f7;}
+    .ln-item.active{background:#deebff;color:var(--accent);font-weight:500;}
+    .ln-item i{width:16px;text-align:center;font-size:13px;color:var(--muted);}
+    .ln-item.active i{color:var(--accent);}
+    .ln-divider{height:1px;background:var(--border2);margin:8px 16px;}
+    .project-chip{display:flex;align-items:center;gap:10px;padding:12px 16px;
+      cursor:pointer;border-bottom:1px solid var(--border2);}
+    .proj-ico{width:24px;height:24px;border-radius:4px;background:#ff5630;
+      display:flex;align-items:center;justify-content:center;font-size:11px;
+      font-weight:700;color:#fff;flex-shrink:0;}
+    .proj-name{font-size:13px;font-weight:600;}
+    .proj-type{font-size:11px;color:var(--muted);}
+    .ticket-list{flex:1;overflow-y:auto;}
+    .ticket-item{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;
+      cursor:pointer;border-bottom:1px solid var(--border2);transition:background .12s;}
+    .ticket-item:hover{background:#f4f5f7;}
+    .ticket-item.active{background:#deebff;}
+    .ticket-key{font-size:11px;font-weight:600;color:var(--accent);flex-shrink:0;}
+    .ticket-title-sm{font-size:12px;color:var(--text);line-height:1.4;flex:1;}
+    .ticket-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px;}
+
+    /* ── MAIN ── */
+    .main{background:var(--white);overflow-y:auto;padding:0;}
+
+    /* breadcrumb */
+    .breadcrumb{display:flex;align-items:center;gap:6px;padding:14px 24px 10px;
+      font-size:12px;color:var(--muted);}
+    .bc-link{color:var(--accent);cursor:pointer;}
+    .bc-link:hover{text-decoration:underline;}
+    .bc-sep{color:var(--muted2);}
+
+    /* toolbar */
+    .ticket-toolbar{display:flex;align-items:center;gap:8px;padding:0 24px 14px;
+      border-bottom:1px solid var(--border2);}
+    .tb-btn{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:4px;
+      border:1px solid var(--border);background:var(--white);font-size:13px;
+      font-weight:500;cursor:pointer;color:var(--text);transition:background .12s;}
+    .tb-btn:hover{background:#f4f5f7;}
+    .tb-btn i{font-size:12px;color:var(--muted);}
+
+    /* ticket body */
+    .ticket-body{padding:24px;max-width:760px;}
+    .ticket-id-badge{font-size:12px;color:var(--muted);font-weight:500;margin-bottom:6px;
+      display:flex;align-items:center;gap:8px;}
+    .issue-type-ico{width:16px;height:16px;background:#ff5630;border-radius:2px;
+      display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#fff;}
+    .ticket-heading{font-size:24px;font-weight:700;color:var(--text);line-height:1.3;margin-bottom:20px;}
+
+    /* reporter card */
+    .reporter-card{background:#f4f5f7;border-radius:6px;padding:16px 20px;margin-bottom:20px;}
+    .reporter-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;}
+    .reporter-avatar{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#6554c0,#8777d9);
+      display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;flex-shrink:0;}
+    .reporter-name{font-weight:600;}
+    .reporter-action{font-weight:400;color:var(--text);}
+    .portal-link{color:var(--accent);cursor:pointer;}
+    .portal-link:hover{text-decoration:underline;}
+    .rc-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;
+      letter-spacing:.5px;margin-bottom:4px;}
+    .rc-value{font-size:14px;color:var(--text);line-height:1.6;}
+    .rc-divider{height:1px;background:var(--border);margin:12px 0;}
+    .detail-grid{display:grid;grid-template-columns:120px 1fr;gap:8px 16px;margin-top:8px;font-size:13px;}
+    .dg-label{color:var(--muted);font-weight:500;}
+    .dg-value{color:var(--text);}
+
+    /* affected services */
+    .affected-section{margin-top:16px;}
+    .af-header{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;
+      font-weight:600;color:var(--text);margin-bottom:10px;}
+    .af-item{display:flex;align-items:center;justify-content:space-between;
+      padding:10px 14px;border:1px solid var(--border);border-radius:4px;
+      background:var(--white);margin-bottom:6px;}
+    .af-name{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;}
+    .af-warn{color:#ff8b00;font-size:14px;}
+
+    /* automation banner */
+    .automation-banner{
+      background:linear-gradient(135deg,#deebff,#ffe0b2);
+      border:1px solid #4c9aff;border-radius:8px;
+      padding:14px 18px;margin:18px 0;
+      display:none;animation:slideIn .4s ease;
+    }
+    .automation-banner.show{display:block;}
+    @keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+    .ab-title{font-size:13px;font-weight:700;color:#0052cc;margin-bottom:6px;
+      display:flex;align-items:center;gap:7px;}
+    .ab-body{font-size:12px;color:#172b4d;line-height:1.7;}
+    .ab-steps{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap;}
+    .ab-step{font-size:11px;font-weight:700;padding:3px 10px;border-radius:3px;
+      text-transform:uppercase;letter-spacing:.5px;}
+    .ab-step.running{background:#fff7d6;color:#ff8b00;border:1px solid #ff8b00;}
+    .ab-step.done{background:var(--passbg);color:var(--pass);border:1px solid var(--pass);}
+    .ab-step.waiting{background:var(--tagbg);color:var(--muted);border:1px solid var(--border);}
+
+    /* activity / comment section */
+    .activity-section{margin-top:28px;}
+    .activity-header{font-size:15px;font-weight:700;margin-bottom:16px;}
+    .activity-tabs{display:flex;gap:0;border-bottom:2px solid var(--border2);margin-bottom:16px;}
+    .at-tab{padding:8px 14px;font-size:13px;font-weight:500;color:var(--muted);
+      cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;}
+    .at-tab.active{color:var(--accent);border-color:var(--accent);}
+    .at-tab:hover{color:var(--accent);}
+
+    /* comment box */
+    .comment-box{display:flex;gap:10px;align-items:flex-start;margin-bottom:20px;}
+    .comment-input-wrap{flex:1;}
+    .comment-tabs{display:flex;gap:0;margin-bottom:0;}
+    .ct-tab{padding:6px 12px;font-size:12px;font-weight:500;border:1px solid var(--border);
+      cursor:pointer;background:var(--white);color:var(--muted);}
+    .ct-tab:first-child{border-radius:4px 0 0 0;}
+    .ct-tab.active{background:var(--white);color:var(--text);border-bottom:1px solid var(--white);z-index:1;}
+    .comment-textarea{width:100%;min-height:80px;border:1px solid var(--border);
+      border-radius:0 4px 4px 4px;padding:10px 12px;font-family:var(--font);
+      font-size:13px;resize:vertical;outline:none;color:var(--text);}
+    .comment-textarea:focus{border-color:var(--accent);}
+    .comment-actions{display:flex;gap:8px;margin-top:8px;}
+    .c-save{background:var(--accent);color:#fff;border:none;border-radius:4px;
+      padding:6px 14px;font-size:13px;font-weight:500;cursor:pointer;}
+    .c-save:hover{background:#0747a6;}
+    .c-cancel{background:none;border:none;font-size:13px;color:var(--muted);cursor:pointer;padding:6px 8px;}
+    .c-cancel:hover{color:var(--text);}
+
+    /* comments */
+    .comment-entry{display:flex;gap:10px;margin-bottom:20px;animation:msgIn .25s ease;}
+    @keyframes msgIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    .ce-av{width:32px;height:32px;border-radius:50%;flex-shrink:0;
+      display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;}
+    .ce-body{flex:1;}
+    .ce-header{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+    .ce-name{font-size:13px;font-weight:600;}
+    .ce-time{font-size:11px;color:var(--muted);}
+    .ce-content{font-size:13px;color:var(--text);line-height:1.6;}
+    .ce-content.bot-comment{background:#f4f5f7;border-radius:0 6px 6px 6px;padding:12px 14px;
+      border-left:3px solid var(--accent);}
+
+    /* test result embedded in comment */
+    .test-result-embed{margin-top:10px;}
+    .tr-summary{display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;}
+    .tr-stat{display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:4px;
+      font-size:12px;font-weight:600;}
+    .tr-stat.total{background:#f4f5f7;color:var(--text);}
+    .tr-stat.pass{background:var(--passbg);color:var(--pass);}
+    .tr-stat.fail{background:var(--failbg);color:var(--fail);}
+    .tr-stat.skip{background:var(--skipbg);color:var(--skip);}
+    .tr-table{width:100%;border-collapse:collapse;font-size:12px;}
+    .tr-table th{background:#f4f5f7;padding:7px 10px;text-align:left;font-weight:600;
+      color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:.5px;
+      border:1px solid var(--border);}
+    .tr-table td{padding:7px 10px;border:1px solid var(--border);vertical-align:middle;}
+    .status-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:3px;
+      font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+    .status-pill.pass{background:var(--passbg);color:var(--pass);}
+    .status-pill.fail{background:var(--failbg);color:var(--fail);}
+    .status-pill.skip{background:var(--skipbg);color:var(--skip);}
+    .attachment-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;
+      border:1px solid var(--border);border-radius:4px;font-size:12px;
+      color:var(--accent);cursor:pointer;margin-top:8px;background:var(--white);}
+    .attachment-chip:hover{background:var(--accentbg);}
+
+    /* ── RIGHT PANEL ── */
+    .right-panel{background:var(--white);border-left:1px solid var(--border);
+      overflow-y:auto;padding:0;}
+
+    /* status + actions row */
+    .rp-top{padding:16px 20px;border-bottom:1px solid var(--border2);
+      display:flex;align-items:center;gap:10px;}
+    .status-dropdown{
+      display:flex;align-items:center;gap:0;border-radius:4px;overflow:hidden;
+      border:1px solid var(--border);cursor:pointer;
+    }
+    .sd-val{
+      padding:6px 14px;font-size:13px;font-weight:600;
+      background:var(--white);color:var(--text);
+      border:none;outline:none;cursor:pointer;
+    }
+    .sd-arrow{padding:6px 8px;background:#f4f5f7;border-left:1px solid var(--border);
+      font-size:11px;cursor:pointer;color:var(--muted);display:flex;align-items:center;}
+    /* status colour overrides */
+    .sd-open .sd-val    {background:#dfe1e6;color:#42526e;}
+    .sd-progress .sd-val{background:#deebff;color:#0052cc;}
+    .sd-review .sd-val  {background:#ffe0b2;color:#ff8b00;}
+    .sd-installed .sd-val{background:#e3fcef;color:#00875a;}
+    .sd-closed .sd-val  {background:#dfe1e6;color:#42526e;}
+
+    .action-btn{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:4px;
+      border:1px solid var(--border);background:var(--white);font-size:13px;font-weight:500;
+      cursor:pointer;color:var(--text);transition:background .12s;}
+    .action-btn:hover{background:#f4f5f7;}
+
+    /* status dropdown menu */
+    .sd-menu{position:absolute;background:var(--white);border:1px solid var(--border);
+      border-radius:4px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:300;
+      min-width:200px;overflow:hidden;display:none;}
+    .sd-menu.open{display:block;animation:dropIn .15s ease;}
+    @keyframes dropIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+    .sd-menu-item{padding:10px 16px;font-size:13px;cursor:pointer;display:flex;
+      align-items:center;gap:10px;transition:background .12s;}
+    .sd-menu-item:hover{background:#f4f5f7;}
+    .sd-menu-item .sm-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+    .sd-separator{height:1px;background:var(--border2);margin:4px 0;}
+
+    /* SLA section */
+    .rp-section{padding:14px 20px;border-bottom:1px solid var(--border2);}
+    .rp-section-title{font-size:13px;font-weight:700;color:var(--text);
+      margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;}
+    .sla-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;}
+    .sla-time{font-size:12px;color:var(--text);font-weight:500;min-width:110px;}
+    .sla-ico{font-size:14px;color:var(--muted);}
+    .sla-label{font-size:12px;color:var(--muted);}
+
+    /* Detail fields */
+    .detail-field{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;}
+    .df-label{font-size:12px;color:var(--muted);min-width:100px;padding-top:2px;}
+    .df-value{font-size:13px;color:var(--text);flex:1;}
+    .df-value.link{color:var(--accent);cursor:pointer;}
+    .df-value.link:hover{text-decoration:underline;}
+    .assignee-chip{display:flex;align-items:center;gap:6px;}
+    .assignee-chip .av{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;
+      justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;}
+    .assign-me{color:var(--accent);font-size:12px;cursor:pointer;display:block;margin-top:2px;}
+    .assign-me:hover{text-decoration:underline;}
+    .priority-chip{display:inline-flex;align-items:center;gap:5px;font-size:13px;}
+
+    /* Tags */
+    .tag{display:inline-flex;align-items:center;background:var(--tagbg);color:var(--tag);
+      border-radius:3px;padding:2px 8px;font-size:12px;font-weight:500;margin:2px;}
+
+    /* Automation trigger notification */
+    .trigger-toast{
+      position:fixed;bottom:24px;right:24px;z-index:999;
+      background:#0052cc;color:#fff;border-radius:8px;padding:14px 18px;
+      max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.2);
+      display:none;animation:toastIn .3s ease;
+    }
+    .trigger-toast.show{display:block;}
+    @keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    .tt-title{font-size:13px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:7px;}
+    .tt-body{font-size:12px;opacity:.9;line-height:1.5;}
+    .tt-close{position:absolute;top:10px;right:12px;cursor:pointer;opacity:.7;font-size:14px;}
+    .tt-close:hover{opacity:1;}
+
+    /* spinner */
+    .spin{animation:spin .6s linear infinite;display:inline-block;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* modal */
+    .modal-bg{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.5);
+      display:none;align-items:center;justify-content:center;}
+    .modal-bg.open{display:flex;}
+    .modal{background:var(--white);border-radius:8px;padding:0;
+      width:520px;max-height:90vh;overflow:auto;
+      box-shadow:0 20px 60px rgba(0,0,0,.25);}
+    .modal-hd{padding:20px 24px;border-bottom:1px solid var(--border);
+      display:flex;align-items:center;justify-content:space-between;}
+    .modal-title{font-size:16px;font-weight:700;}
+    .modal-x{cursor:pointer;color:var(--muted);font-size:16px;padding:4px;}
+    .modal-x:hover{color:var(--text);}
+    .modal-body{padding:20px 24px;}
+    .form-label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;
+      letter-spacing:.5px;margin-bottom:6px;display:block;}
+    .form-input,.form-select,.form-textarea{
+      width:100%;border:1px solid var(--border);border-radius:4px;
+      padding:8px 12px;font-family:var(--font);font-size:14px;
+      color:var(--text);outline:none;margin-bottom:14px;}
+    .form-input:focus,.form-select:focus,.form-textarea:focus{border-color:var(--accent);}
+    .form-textarea{resize:vertical;min-height:80px;}
+    .form-select{cursor:pointer;}
+    .modal-footer{padding:14px 24px;border-top:1px solid var(--border);
+      display:flex;gap:8px;justify-content:flex-end;}
+    .btn-primary{background:var(--accent);color:#fff;border:none;border-radius:4px;
+      padding:8px 16px;font-size:14px;font-weight:500;cursor:pointer;}
+    .btn-primary:hover{background:#0747a6;}
+    .btn-secondary{background:none;border:1px solid var(--border);color:var(--text);
+      border-radius:4px;padding:8px 16px;font-size:14px;cursor:pointer;}
+
+    /* tag chips in robot tags */
+    .robot-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;}
+    .rtag{background:#e3fcef;color:#00875a;border-radius:3px;padding:2px 8px;
+      font-size:11px;font-weight:600;font-family:monospace;}
+  </style>
+</head>
+<body>
+
+<!-- TOP NAV -->
+<nav class="jira-nav">
+  <a class="nav-logo" href="#">
+    <svg viewBox="0 0 32 32" fill="none">
+      <path d="M16 2L2 16l14 14 14-14L16 2z" fill="rgba(255,255,255,.3)"/>
+      <path d="M16 7l-9 9 9 9 9-9-9-9z" fill="white"/>
+    </svg>
+    Jira
+  </a>
+  <div class="nav-links">
+    <button class="nav-link">Your work <i class="fas fa-chevron-down" style="font-size:10px"></i></button>
+    <button class="nav-link" style="font-weight:600;color:#fff">Projects <i class="fas fa-chevron-down" style="font-size:10px"></i></button>
+    <button class="nav-link">Filters <i class="fas fa-chevron-down" style="font-size:10px"></i></button>
+    <button class="nav-link">Dashboards <i class="fas fa-chevron-down" style="font-size:10px"></i></button>
+    <button class="nav-link">Teams <i class="fas fa-chevron-down" style="font-size:10px"></i></button>
+    <button class="nav-link">Plans <i class="fas fa-chevron-down" style="font-size:10px"></i></button>
+    <button class="nav-link">Assets</button>
+    <button class="nav-link">Apps <i class="fas fa-chevron-down" style="font-size:10px"></i></button>
+  </div>
+  <div class="nav-sep"></div>
+  <button class="create-btn" onclick="openCreateModal()">Create</button>
+  <input class="nav-search" type="text" placeholder="Search"/>
+  <div class="nav-icon"><i class="fas fa-bell"></i></div>
+  <div class="nav-icon"><i class="fas fa-question-circle"></i></div>
+  <div class="nav-icon"><i class="fas fa-cog"></i></div>
+  <div class="nav-avatar" id="nav-av">A</div>
+</nav>
+
+<!-- LAYOUT -->
+<div class="layout">
+
+  <!-- LEFT NAV -->
+  <div class="left-nav">
+    <div class="project-chip">
+      <div class="proj-ico">IT</div>
+      <div>
+        <div class="proj-name">AutoBot IT Project</div>
+        <div class="proj-type">IT Service Management</div>
+      </div>
+    </div>
+    <div style="padding:6px 0;">
+      <div class="ln-item"><i class="fas fa-home"></i> Project settings</div>
+      <div class="ln-item"><i class="fas fa-tachometer-alt"></i> Summary</div>
+      <div class="ln-item active" id="nav-queues" onclick="showListView(true)"><i class="fas fa-list"></i> Queues</div>
+      <div class="ln-item" id="nav-reports" onclick="showReportsView()"><i class="fas fa-chart-bar"></i> Reports <span style="margin-left:auto;background:var(--failbg);color:var(--fail);border-radius:10px;padding:1px 8px;font-size:11px" id="bugs-count">0</span></div>
+    </div>
+    <div class="ln-divider"></div>
+    <div class="ln-section">Queues</div>
+    <div class="ln-item" onclick="filterTickets('all')"><i class="fas fa-inbox"></i> All open issues <span style="margin-left:auto;background:#dfe1e6;border-radius:10px;padding:1px 8px;font-size:11px" id="all-count">5</span></div>
+    <div class="ln-item" onclick="filterTickets('open')"><i class="fas fa-circle" style="color:#42526e;font-size:8px"></i> Open <span style="margin-left:auto;background:#dfe1e6;border-radius:10px;padding:1px 8px;font-size:11px" id="open-count">3</span></div>
+    <div class="ln-item" onclick="filterTickets('installed')"><i class="fas fa-circle" style="color:#00875a;font-size:8px"></i> Installed in INT <span style="margin-left:auto;background:#e3fcef;color:#00875a;border-radius:10px;padding:1px 8px;font-size:11px" id="inst-count">0</span></div>
+    <div class="ln-item" onclick="filterTickets('inprogress')"><i class="fas fa-circle" style="color:#0052cc;font-size:8px"></i> In Progress <span style="margin-left:auto;background:#deebff;border-radius:10px;padding:1px 8px;font-size:11px">1</span></div>
+    <div class="ln-divider"></div>
+    <div class="ln-section">Automation</div>
+    <div class="ln-item" onclick="showToast('AutoBot Automation Rules active', 'info')">
+      <i class="fas fa-robot" style="color:#0052cc"></i> AutoBot Rules
+      <span style="margin-left:auto;background:#e3fcef;color:#00875a;border-radius:10px;padding:1px 8px;font-size:11px">ON</span>
+    </div>
+    <div class="ln-item"><i class="fas fa-bell"></i> Notifications</div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main" id="main-content">
+
+    <!-- ticket list view -->
+    <div id="ticket-list-view">
+      <div style="padding:20px 24px;border-bottom:1px solid var(--border2);
+        display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:18px;font-weight:700">All open issues</div>
+        <button class="tb-btn" onclick="openCreateModal()"><i class="fas fa-plus"></i> Create Issue</button>
+      </div>
+      <table style="width:100%;border-collapse:collapse;" id="tickets-table">
+        <thead>
+          <tr style="border-bottom:2px solid var(--border2);">
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Type</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Key</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Summary</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Status</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Priority</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Robot Tags</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Assignee</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Run</th>
+          </tr>
+        </thead>
+        <tbody id="ticket-rows"></tbody>
+      </table>
+    </div>
+
+    <!-- bug report view (all bugs raised, across the whole team) -->
+    <div id="reports-view" style="display:none;">
+      <div style="padding:20px 24px;border-bottom:1px solid var(--border2);
+        display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:18px;font-weight:700">Bug Report</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">All bugs raised from ticket runs and manual reports</div>
+        </div>
+        <button class="tb-btn" onclick="loadBugReports()"><i class="fas fa-sync"></i> Refresh</button>
+      </div>
+      <div style="display:flex;gap:12px;padding:16px 24px 0;">
+        <div style="flex:1;background:#f4f5f7;border-radius:6px;padding:12px 16px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Total Bugs</div>
+          <div style="font-size:22px;font-weight:700" id="rep-total">0</div>
+        </div>
+        <div style="flex:1;background:#f4f5f7;border-radius:6px;padding:12px 16px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Critical / High</div>
+          <div style="font-size:22px;font-weight:700;color:var(--fail)" id="rep-critical">0</div>
+        </div>
+        <div style="flex:1;background:#f4f5f7;border-radius:6px;padding:12px 16px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Environments</div>
+          <div style="font-size:22px;font-weight:700" id="rep-envs">0</div>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-top:16px;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--border2);">
+            <th style="padding:10px 24px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Jira Key</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Test Case</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Error</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Env</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Priority</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Raised By</th>
+            <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Time</th>
+          </tr>
+        </thead>
+        <tbody id="report-rows"><tr><td colspan="7" style="padding:20px 24px;color:var(--muted)">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- ticket detail view -->
+    <div id="ticket-detail-view" style="display:none;">
+      <div class="breadcrumb">
+        <span class="bc-link" onclick="backToList()">Projects</span>
+        <span class="bc-sep">/</span>
+        <span class="bc-link" onclick="backToList()">AutoBot IT Project</span>
+        <span class="bc-sep">/</span>
+        <span class="bc-link" onclick="backToList()">Queues</span>
+        <span class="bc-sep">/</span>
+        <span id="bc-ticket-id" style="color:var(--text)">IT-6</span>
+      </div>
+
+      <div class="ticket-toolbar">
+        <button class="tb-btn"><i class="fas fa-tasks"></i> Create subtask</button>
+        <button class="tb-btn"><i class="fas fa-search"></i> Investigate</button>
+        <button class="tb-btn"><i class="fas fa-link"></i> Link issue</button>
+        <button class="tb-btn"><i class="fas fa-chevron-down"></i></button>
+        <button class="tb-btn">Create <i class="fas fa-chevron-down"></i></button>
+        <button class="tb-btn"><i class="fas fa-ellipsis-h"></i></button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 260px;min-height:calc(100vh - 180px);">
+        <!-- Left: ticket detail -->
+        <div class="ticket-body">
+          <div class="ticket-id-badge">
+            <span class="issue-type-ico">🔴</span>
+            <span id="detail-ticket-id">IT-6</span>
+          </div>
+          <div class="ticket-heading" id="detail-title">Incorrect database collation</div>
+
+          <!-- Reporter card -->
+          <div class="reporter-card">
+            <div class="reporter-row">
+              <div class="reporter-avatar" id="reporter-av">R</div>
+              <span>
+                <span class="reporter-name" id="reporter-name">Rachel Wright</span>
+                <span class="reporter-action"> raised this request via </span>
+                <span class="portal-link">Portal</span>
+              </span>
+              <span style="margin-left:auto;color:var(--accent);font-size:13px;cursor:pointer">Hide details</span>
+            </div>
+            <div class="rc-label">Description</div>
+            <div class="rc-value" id="detail-desc">
+              I noticed that the MySQL collation in the test environment is <em>utf8_unicode_ci</em>.<br>
+              It should be updated to match the settings in production.
+            </div>
+
+            <div class="affected-section">
+              <div class="rc-divider"></div>
+              <div class="af-header">
+                Affected services <i class="fas fa-question-circle" style="color:var(--muted);font-size:11px"></i>
+                <i class="fas fa-chevron-up" style="color:var(--muted);font-size:11px;margin-left:auto"></i>
+              </div>
+              <div class="af-item" id="affected-service-item">
+                <div class="af-name">
+                  <i class="fas fa-share-alt" style="color:var(--muted)"></i>
+                  <span id="affected-service">Database</span>
+                </div>
+                <span class="af-warn"><i class="fas fa-exclamation-triangle"></i></span>
+              </div>
+              <div class="detail-grid">
+                <span class="dg-label">Urgency</span><span class="dg-value" id="detail-urgency">Medium</span>
+                <span class="dg-label">Impact</span><span class="dg-value" id="detail-impact">Moderate / Limited</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Robot Tags display -->
+          <div style="margin-bottom:16px;">
+            <div class="rc-label">Robot Framework Tags</div>
+            <div class="robot-tags" id="detail-robot-tags"></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+              <i class="fas fa-info-circle"></i>
+              When status changes to <strong>Installed in INT</strong>, AutoBot will run
+              tests matching these tags automatically.
+            </div>
+          </div>
+
+          <!-- Automation banner -->
+          <div class="automation-banner" id="automation-banner">
+            <div class="ab-title">
+              <i class="fas fa-robot"></i> AutoBot Automation Triggered
+            </div>
+            <div class="ab-body" id="ab-body">
+              Status changed to <strong>Installed in INT</strong>. Running Robot Framework
+              tests for tags: <span id="ab-tags"></span>
+            </div>
+            <div class="ab-steps" id="ab-steps">
+              <span class="ab-step done">✓ Triggered</span>
+              <span class="ab-step running"><i class="fas fa-spinner spin"></i> Running Tests</span>
+              <span class="ab-step waiting">Post Results</span>
+            </div>
+          </div>
+
+          <!-- Activity section -->
+          <div class="activity-section">
+            <div class="activity-header">Activity</div>
+            <div class="activity-tabs">
+              <div class="at-tab active">All</div>
+              <div class="at-tab">Comments</div>
+              <div class="at-tab">History</div>
+              <div class="at-tab">Work log</div>
+            </div>
+
+            <div class="comment-box">
+              <div class="reporter-avatar" style="background:linear-gradient(135deg,#0052cc,#4c9aff)" id="comment-av">A</div>
+              <div class="comment-input-wrap">
+                <div class="comment-tabs">
+                  <div class="ct-tab active">Reply to customer</div>
+                  <div class="ct-tab" style="background:#f4f5f7">Add internal note</div>
+                </div>
+                <textarea class="comment-textarea" id="comment-input"
+                  placeholder="Reply to the customer..."></textarea>
+                <div class="comment-actions">
+                  <button class="c-save" onclick="addComment()">Save</button>
+                  <button class="c-cancel" onclick="document.getElementById('comment-input').value=''">Cancel</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Comments list -->
+            <div id="comments-list"></div>
+          </div>
+        </div>
+
+        <!-- Right mini panel inside main -->
+        <div style="border-left:1px solid var(--border2);padding:16px;background:#fafbfc;">
+          <div style="font-size:12px;font-weight:600;color:var(--muted);
+            text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Quick Info</div>
+          <div class="detail-field">
+            <span class="df-label">Created</span>
+            <span class="df-value" id="qi-created">Today</span>
+          </div>
+          <div class="detail-field">
+            <span class="df-label">Updated</span>
+            <span class="df-value" id="qi-updated">Just now</span>
+          </div>
+          <div class="detail-field">
+            <span class="df-label">Reporter</span>
+            <span class="df-value link" id="qi-reporter">Rachel Wright</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel" id="right-panel" style="display:none;">
+    <div class="rp-top">
+      <!-- Status dropdown -->
+      <div style="position:relative;">
+        <div class="status-dropdown sd-open" id="status-dropdown" onclick="toggleStatusMenu()">
+          <select class="sd-val" id="status-val-display"
+            style="appearance:none;border:none;background:transparent;
+            font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;
+            padding:6px 4px 6px 14px;outline:none;color:inherit;"
+            onclick="event.stopPropagation();toggleStatusMenu()">
+          </select>
+          <div class="sd-arrow"><i class="fas fa-chevron-down"></i></div>
+        </div>
+        <div class="sd-menu" id="sd-menu">
+          <div class="sd-menu-item" onclick="setTicketStatus('Open')">
+            <span class="sm-dot" style="background:#42526e"></span> Open
+          </div>
+          <div class="sd-menu-item" onclick="setTicketStatus('In Progress')">
+            <span class="sm-dot" style="background:#0052cc"></span> In Progress
+          </div>
+          <div class="sd-menu-item" onclick="setTicketStatus('In Review')">
+            <span class="sm-dot" style="background:#ff8b00"></span> In Review
+          </div>
+          <div class="sd-separator"></div>
+          <div class="sd-menu-item" onclick="setTicketStatus('Installed in INT')"
+            style="font-weight:600;color:#00875a;">
+            <span class="sm-dot" style="background:#00875a"></span>
+            🚀 Installed in INT
+            <span style="font-size:10px;color:#00875a;margin-left:auto">triggers tests</span>
+          </div>
+          <div class="sd-separator"></div>
+          <div class="sd-menu-item" onclick="setTicketStatus('Closed')">
+            <span class="sm-dot" style="background:#42526e"></span> Closed
+          </div>
+        </div>
+      </div>
+
+      <div style="position:relative;">
+        <button class="action-btn" onclick="toggleActionMenu()">
+          <i class="fas fa-bolt"></i> Actions <i class="fas fa-chevron-down" style="font-size:10px"></i>
+        </button>
+      </div>
+      <span style="font-size:16px;color:var(--muted);cursor:pointer;margin-left:auto">···</span>
+    </div>
+
+    <!-- SLAs -->
+    <div class="rp-section">
+      <div class="rp-section-title">SLAs <i class="fas fa-chevron-up" style="font-size:10px;color:var(--muted)"></i></div>
+      <div class="sla-row">
+        <span class="sla-time">Today 04:34 PM</span>
+        <i class="fas fa-clock sla-ico"></i>
+        <div><div style="font-size:12px;font-weight:600">Time to first response</div><div class="sla-label">within 2h</div></div>
+      </div>
+      <div class="sla-row">
+        <span class="sla-time">Tomorrow 10:34 AM</span>
+        <i class="fas fa-clock sla-ico"></i>
+        <div><div style="font-size:12px;font-weight:600">Time to resolution</div><div class="sla-label">within 4h</div></div>
+      </div>
+    </div>
+
+    <!-- Details -->
+    <div class="rp-section">
+      <div class="rp-section-title">Details <i class="fas fa-chevron-up" style="font-size:10px;color:var(--muted)"></i></div>
+      <div class="detail-field">
+        <span class="df-label">Assignee</span>
+        <div class="df-value">
+          <div class="assignee-chip">
+            <div class="av" style="background:#dfe1e6;color:#42526e"><i class="fas fa-user" style="font-size:10px"></i></div>
+            <span id="rp-assignee">Unassigned</span>
+          </div>
+          <a class="assign-me" onclick="assignToMe()">Assign to me</a>
+        </div>
+      </div>
+      <div class="detail-field">
+        <span class="df-label">Reporter</span>
+        <div class="df-value">
+          <div class="assignee-chip">
+            <div class="av" style="background:linear-gradient(135deg,#6554c0,#8777d9)" id="rp-reporter-av">R</div>
+            <span id="rp-reporter">Rachel Wright</span>
+          </div>
+        </div>
+      </div>
+      <div class="detail-field">
+        <span class="df-label">Request Type</span>
+        <div class="df-value"><i class="fas fa-info-circle" style="color:var(--muted)"></i> <span id="rp-req-type">Report a system problem</span></div>
+      </div>
+      <div class="detail-field">
+        <span class="df-label">Priority</span>
+        <div class="df-value">
+          <span class="priority-chip" id="rp-priority">
+            <i class="fas fa-chevron-down" style="color:#0052cc"></i> Low
+          </span>
+        </div>
+      </div>
+      <div class="detail-field">
+        <span class="df-label">Severity</span>
+        <div class="df-value" id="rp-severity">None</div>
+      </div>
+      <div class="detail-field">
+        <span class="df-label">Labels</span>
+        <div class="df-value" id="rp-labels">None</div>
+      </div>
+      <div class="detail-field">
+        <span class="df-label">Robot Tags</span>
+        <div class="df-value" id="rp-robot-tags"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Status dropdown overlay -->
+<div id="sd-overlay" style="display:none;position:fixed;inset:0;z-index:299;"
+  onclick="closeStatusMenu()"></div>
+
+<!-- Automation trigger toast -->
+<div class="trigger-toast" id="trigger-toast">
+  <span class="tt-close" onclick="this.parentElement.classList.remove('show')">✕</span>
+  <div class="tt-title"><i class="fas fa-robot"></i> <span id="tt-title-text">AutoBot Triggered</span></div>
+  <div class="tt-body" id="tt-body">Running tests for Installed in INT...</div>
+</div>
+
+<!-- CREATE ISSUE MODAL -->
+<div class="modal-bg" id="create-modal">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="modal-title">Create Issue</div>
+      <span class="modal-x" onclick="closeCreateModal()"><i class="fas fa-times"></i></span>
+    </div>
+    <div class="modal-body">
+      <label class="form-label">Summary *</label>
+      <input class="form-input" id="new-title" type="text" placeholder="Enter summary..."/>
+
+      <label class="form-label">Description</label>
+      <textarea class="form-textarea" id="new-desc" placeholder="Describe the issue..."></textarea>
+
+      <label class="form-label">Priority</label>
+      <select class="form-select" id="new-priority">
+        <option>Low</option><option>Medium</option><option selected>High</option><option>Critical</option>
+      </select>
+
+      <label class="form-label">Urgency</label>
+      <select class="form-select" id="new-urgency">
+        <option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option>
+      </select>
+
+      <label class="form-label">Affected Service</label>
+      <input class="form-input" id="new-service" type="text" placeholder="e.g. Database, API, Frontend"/>
+
+      <label class="form-label">
+        Robot Framework Tags
+        <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--muted);margin-left:6px;">
+          comma-separated — used to trigger automation tests
+        </span>
+      </label>
+      <input class="form-input" id="new-tags" type="text"
+        placeholder="e.g. login, database, regression, sanity"/>
+
+      <label class="form-label">Reporter</label>
+      <input class="form-input" id="new-reporter" type="text" placeholder="Reporter name"/>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeCreateModal()">Cancel</button>
+      <button class="btn-primary" onclick="createIssue()">Create</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── AUTH ─────────────────────────────────────────────────── */
+const ME = localStorage.getItem('ab_user') || 'admin';
+document.getElementById('nav-av').textContent       = ME.charAt(0).toUpperCase();
+document.getElementById('comment-av').textContent   = ME.charAt(0).toUpperCase();
+
+/* ── API BASE ─────────────────────────────────────────────── */
+// Tickets and bugs are persisted server-side (data/tickets.json, data/bugs.json)
+// via the Flask backend — this is the shared "database" for jira.html AND dashboard.html.
+const API_BASE = 'http://localhost:8000';
+
+/* ── FALLBACK TICKETS (used only if the backend is unreachable) ─────────── */
+const FALLBACK_TICKETS = [
+  {
+    id:'IT-6', title:'Incorrect database collation', status:'Open',
+    priority:'Low', urgency:'Medium', impact:'Moderate / Limited',
+    service:'Database', reporter:'Rachel Wright', assignee:null,
+    desc:'I noticed that the MySQL collation in the test environment is <em>utf8_unicode_ci</em>.<br>It should be updated to match the settings in production.',
+    robotTags:['database','regression','sanity'],
+    reqType:'Report a system problem', severity:'None', labels:'None',
+    comments:[], created:'Today 10:00 AM', updated:'Today 04:34 PM',
+    testResults:null
+  },
+  {
+    id:'IT-7', title:'Login page 500 error on prod', status:'In Progress',
+    priority:'High', urgency:'High', impact:'Major',
+    service:'Auth Service', reporter:'qa', assignee:'dev',
+    desc:'Login endpoint returns HTTP 500 under high load on production environment.',
+    robotTags:['login','auth','smoke'],
+    reqType:'Report a system problem', severity:'High', labels:'prod, critical',
+    comments:[], created:'Yesterday', updated:'Today 09:00 AM',
+    testResults:null
+  },
+];
+
+let tickets = [];
+let currentTicket = null;
+let currentFilter = 'all';
+let usingBackend  = false;
+
+/* ── INIT ─────────────────────────────────────────────────── */
+window.addEventListener('DOMContentLoaded', () => {
+  loadTickets();
+});
+
+/* ── LOAD / PERSIST TICKETS (server-backed "database") ───────────────────── */
+async function loadTickets() {
+  try {
+    const res = await fetch(`${API_BASE}/api/tickets`);
+    if (!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    tickets = data.tickets || [];
+    usingBackend = true;
+  } catch (_) {
+    tickets = JSON.parse(JSON.stringify(FALLBACK_TICKETS));
+    usingBackend = false;
+    showToast('⚠️ Backend unreachable — showing local demo tickets only', 'info');
+  }
+  renderTicketList();
+  loadBugsCount();
+}
+
+async function persistTicket(t) {
+  if (!usingBackend) return;
+  try {
+    await fetch(`${API_BASE}/api/tickets/${encodeURIComponent(t.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: t.status, assignee: t.assignee, comments: t.comments,
+        testResults: t.testResults, priority: t.priority
+      })
+    });
+  } catch (_) { /* best-effort sync */ }
+}
+
+/* ── TICKET LIST ──────────────────────────────────────────── */
+const STATUS_COLORS = {
+  'Open':           '#42526e',
+  'In Progress':    '#0052cc',
+  'In Review':      '#ff8b00',
+  'Installed in INT':'#00875a',
+  'Closed':         '#6b778c',
+};
+const PRIORITY_ICONS = {
+  'Critical':'<i class="fas fa-exclamation-triangle" style="color:#de350b"></i>',
+  'High':    '<i class="fas fa-arrow-up" style="color:#ff5630"></i>',
+  'Medium':  '<i class="fas fa-equals" style="color:#ff8b00"></i>',
+  'Low':     '<i class="fas fa-arrow-down" style="color:#0052cc"></i>',
+};
+
+function filterTickets(f) {
+  currentFilter = f;
+  document.querySelectorAll('.ln-item').forEach(el => el.classList.remove('active'));
+  renderTicketList();
+  showListView();
+}
+
+function renderTicketList() {
+  const filtered = currentFilter === 'all'    ? tickets
+    : currentFilter === 'open'       ? tickets.filter(t => t.status === 'Open')
+    : currentFilter === 'installed'  ? tickets.filter(t => t.status === 'Installed in INT')
+    : currentFilter === 'inprogress' ? tickets.filter(t => t.status === 'In Progress')
+    : tickets;
+
+  const body = document.getElementById('ticket-rows');
+  body.innerHTML = filtered.map(t => `
+    <tr style="border-bottom:1px solid var(--border2);cursor:pointer;"
+      onmouseenter="this.style.background='#f4f5f7'"
+      onmouseleave="this.style.background=''"
+      onclick="openTicket('${t.id}')">
+      <td style="padding:10px 16px"><span class="issue-type-ico">🔴</span></td>
+      <td style="padding:10px 16px;font-size:12px;font-weight:600;color:var(--accent);white-space:nowrap">${t.id}</td>
+      <td style="padding:10px 16px;font-size:13px;max-width:280px">${t.title}</td>
+      <td style="padding:10px 16px">
+        <span style="background:${STATUS_COLORS[t.status]}18;color:${STATUS_COLORS[t.status]};
+          border-radius:3px;padding:2px 10px;font-size:11px;font-weight:700;text-transform:uppercase;
+          letter-spacing:.5px">${t.status}</span>
+      </td>
+      <td style="padding:10px 16px">${PRIORITY_ICONS[t.priority]||''} ${t.priority}</td>
+      <td style="padding:10px 16px">
+        ${t.robotTags.map(tag => `<span class="rtag">${tag}</span>`).join(' ')}
+      </td>
+      <td style="padding:10px 16px;font-size:12px;color:var(--muted)">${t.assignee||'Unassigned'}</td>
+      <td style="padding:10px 16px" onclick="event.stopPropagation()">
+        <button class="tb-btn" style="padding:4px 10px" title="Run automation for ${t.id}" onclick="runTicketById('${t.id}')">
+          <i class="fas fa-play" style="color:var(--pass)"></i> Run
+        </button>
+      </td>
+    </tr>`).join('');
+
+  // update counts
+  document.getElementById('all-count').textContent  = tickets.length;
+  document.getElementById('open-count').textContent  = tickets.filter(t=>t.status==='Open').length;
+  document.getElementById('inst-count').textContent  = tickets.filter(t=>t.status==='Installed in INT').length;
+}
+
+/* ── RUN FROM LIST (a ticket-based script run, callable from jira.html or the portal) ── */
+async function runTicketById(id) {
+  const t = tickets.find(x => x.id === id);
+  if (!t) return;
+  currentTicket = t;
+  await triggerAutomation();
+}
+
+/* ── OPEN TICKET DETAIL ───────────────────────────────────── */
+function openTicket(id) {
+  currentTicket = tickets.find(t => t.id === id);
+  if (!currentTicket) return;
+  renderTicketDetail();
+  showDetailView();
+}
+
+function renderTicketDetail() {
+  const t = currentTicket;
+  document.getElementById('bc-ticket-id').textContent     = t.id;
+  document.getElementById('detail-ticket-id').textContent = t.id;
+  document.getElementById('detail-title').textContent     = t.title;
+  document.getElementById('detail-desc').innerHTML        = t.desc;
+  document.getElementById('affected-service').textContent = t.service;
+  document.getElementById('detail-urgency').textContent   = t.urgency;
+  document.getElementById('detail-impact').textContent    = t.impact;
+  document.getElementById('qi-reporter').textContent      = t.reporter;
+  document.getElementById('qi-created').textContent       = t.created;
+  document.getElementById('qi-updated').textContent       = t.updated;
+
+  // reporter avatar
+  const rav = document.getElementById('reporter-av');
+  rav.textContent = t.reporter.charAt(0).toUpperCase();
+
+  // robot tags in body
+  const tagsEl = document.getElementById('detail-robot-tags');
+  tagsEl.innerHTML = t.robotTags.map(tag => `<span class="rtag">${tag}</span>`).join('');
+
+  // right panel
+  document.getElementById('rp-reporter').textContent     = t.reporter;
+  document.getElementById('rp-reporter-av').textContent  = t.reporter.charAt(0).toUpperCase();
+  document.getElementById('rp-req-type').textContent     = t.reqType;
+  document.getElementById('rp-severity').textContent     = t.severity;
+  document.getElementById('rp-labels').textContent       = t.labels;
+  document.getElementById('rp-assignee').textContent     = t.assignee || 'Unassigned';
+  document.getElementById('rp-robot-tags').innerHTML     =
+    t.robotTags.map(tag => `<span class="rtag">${tag}</span>`).join(' ');
+
+  // priority
+  const priColors = { Critical:'#de350b', High:'#ff5630', Medium:'#ff8b00', Low:'#0052cc' };
+  document.getElementById('rp-priority').innerHTML =
+    `<i class="fas fa-chevron-down" style="color:${priColors[t.priority]||'#0052cc'}"></i> ${t.priority}`;
+
+  // status dropdown
+  renderStatusDropdown(t.status);
+
+  // automation banner
+  document.getElementById('automation-banner').classList.remove('show');
+
+  // render comments
+  renderComments();
+
+  // test results if already ran
+  if (t.testResults) renderTestResultComment(t.testResults, false);
+}
+
+function renderStatusDropdown(status) {
+  const dd = document.getElementById('status-dropdown');
+  dd.className = 'status-dropdown sd-' + status.toLowerCase().replace(/ /g,'');
+
+  const sel = document.getElementById('status-val-display');
+  sel.innerHTML = `<option>${status}</option>`;
+
+  // colour
+  const colors = {
+    'Open':            ['#dfe1e6','#42526e'],
+    'In Progress':     ['#deebff','#0052cc'],
+    'In Review':       ['#ffe0b2','#ff8b00'],
+    'Installed in INT':['#e3fcef','#00875a'],
+    'Closed':          ['#dfe1e6','#6b778c'],
+  };
+  const [bg, fg] = colors[status] || ['#dfe1e6','#42526e'];
+  sel.style.background = bg; sel.style.color = fg;
+  dd.style.background  = bg;
+}
+
+/* ── STATUS CHANGE ────────────────────────────────────────── */
+function toggleStatusMenu() {
+  const menu = document.getElementById('sd-menu');
+  const overlay = document.getElementById('sd-overlay');
+  const open = menu.classList.contains('open');
+  menu.classList.toggle('open');
+  overlay.style.display = open ? 'none' : 'block';
+}
+function closeStatusMenu() {
+  document.getElementById('sd-menu').classList.remove('open');
+  document.getElementById('sd-overlay').style.display = 'none';
+}
+
+async function setTicketStatus(newStatus) {
+  closeStatusMenu();
+  if (!currentTicket) return;
+
+  const oldStatus = currentTicket.status;
+  currentTicket.status = newStatus;
+  currentTicket.updated = 'Just now';
+  renderStatusDropdown(newStatus);
+
+  // Add history comment
+  addSystemComment(`Status changed from <strong>${oldStatus}</strong> → <strong style="color:${STATUS_COLORS[newStatus]}">${newStatus}</strong>`);
+  persistTicket(currentTicket);
+
+  // ── AUTOMATION TRIGGER ─────────────────────────────────────
+  if (newStatus === 'Installed in INT') {
+    triggerAutomation();
+  }
+
+  renderTicketList();
+}
+
+async function triggerAutomation() {
+  const t = currentTicket;
+
+  // Show automation banner
+  const banner = document.getElementById('automation-banner');
+  document.getElementById('ab-tags').innerHTML =
+    t.robotTags.map(tag => `<span class="rtag">${tag}</span>`).join(' ');
+  banner.classList.add('show');
+
+  // Show toast
+  showToast('🤖 AutoBot triggered for ' + t.id + ' — running tests...', 'trigger');
+
+  // Step 1: Triggered ✓ (already shown)
+  await delay(1200);
+
+  // Step 2: Running…
+  updateBannerSteps('running');
+
+  // Call Flask to run tests
+  let result = null;
+  try {
+    const res = await fetch('http://localhost:8000/confirm_run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        params: {
+          test_type: t.id,
+          region:    'INT',
+          env:       'US',
+          tags:      t.robotTags
+        },
+        user: ME, ticketId: t.id
+      })
+    });
+    if (res.ok) {
+      // Poll for completion
+      result = await pollStatus();
+    }
+  } catch (_) {
+    // Demo mode
+    result = genDemoResult(t.robotTags);
+  }
+
+  // Step 3: Post results
+  updateBannerSteps('posting');
+  await delay(600);
+
+  // Post result comment on ticket
+  postTestResultComment(result, t.robotTags);
+  updateBannerSteps('done');
+  t.testResults = result;
+  persistTicket(t);
+
+  // Raise a bug via the Flask backend (proxies to Spring Boot when available,
+  // otherwise falls back to a locally-generated key — always persisted to the
+  // shared bugs.json "database" so it shows up in the Reports view and dashboard).
+  try {
+    if (result.failed > 0) {
+      const bugRes = await fetch(`${API_BASE}/api/registry/raise?username=${ME}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          testCaseName:  t.id + '_AutomationRun',
+          env:           'INT',
+          errorMessage:  `Automated run for ${t.id}: ${result.passed} passed, ${result.failed} failed`,
+          suite:         t.id,
+          priority:      result.failed > 0 ? 'High' : 'Low'
+        })
+      });
+      if (bugRes.ok) loadBugsCount();
+    }
+  } catch(_) {}
+
+  showToast(`✅ ${t.id} automation complete — ${result.passed}P ${result.failed}F`, 'success');
+}
+
+async function pollStatus() {
+  for (let i = 0; i < 20; i++) {
+    await delay(1500);
+    try {
+      const res = await fetch('http://localhost:8000/status');
+      const d   = await res.json();
+      if (d.status === 'completed') return d;
+    } catch(_) {}
+  }
+  return genDemoResult([]);
+}
+
+<!--function genDemoResult(tags) {-->
+<!--  const total   = Math.floor(Math.random() * 20) + 8;-->
+<!--  const failed  = Math.floor(Math.random() * 4);-->
+<!--  const skipped = Math.floor(Math.random() * 2);-->
+<!--  const passed  = total - failed - skipped;-->
+<!--  const names   = ['Login_Validation','API_Auth_Check','DB_Connection_Test',-->
+<!--                   'Payment_Flow','Search_Results','Profile_Update','Cart_Checkout'];-->
+<!--  return {-->
+<!--    total, passed, failed, skipped,-->
+<!--    duration: Math.floor(Math.random() * 90) + 20,-->
+<!--    failures: Array.from({ length: failed }, (_, i) => ({-->
+<!--      name:    names[i % names.length],-->
+<!--      message: `AssertionError: Expected 200 but got ${[404,500,503][i%3]}`-->
+<!--    }))-->
+<!--  };-->
+<!--}-->
+
+function updateBannerSteps(phase) {
+  const el = document.getElementById('ab-steps');
+  if (phase === 'running') {
+    el.innerHTML = `
+      <span class="ab-step done">✓ Triggered</span>
+      <span class="ab-step running"><i class="fas fa-spinner spin"></i> Running Tests</span>
+      <span class="ab-step waiting">Post Results</span>`;
+  } else if (phase === 'posting') {
+    el.innerHTML = `
+      <span class="ab-step done">✓ Triggered</span>
+      <span class="ab-step done">✓ Tests Complete</span>
+      <span class="ab-step running"><i class="fas fa-spinner spin"></i> Posting Results</span>`;
+  } else if (phase === 'done') {
+    el.innerHTML = `
+      <span class="ab-step done">✓ Triggered</span>
+      <span class="ab-step done">✓ Tests Complete</span>
+      <span class="ab-step done">✓ Results Posted</span>`;
+  }
+}
+
+function postTestResultComment(result, tags) {
+  const t       = currentTicket;
+  const pr      = result.total > 0 ? Math.round(result.passed / result.total * 100) : 0;
+  const status  = result.failed > 0 ? '⚠️ Failures Detected' : '✅ All Tests Passed';
+  const now     = new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+
+  // Build table of individual results
+  const allTests = [
+    ...(result.failures || []).map(f => ({ name: f.name, status:'fail', msg: f.message })),
+    ...Array.from({ length: result.passed }, (_, i) => ({
+      name: `TC_${String(i+101).padStart(3,'0')}_${(tags[i%tags.length]||'test').toUpperCase()}`,
+      status:'pass', msg:'OK'
+    })),
+  ].slice(0, 8);
+
+  const tableRows = allTests.map(tc => `
+    <tr>
+      <td>${tc.name}</td>
+      <td><span class="status-pill ${tc.status}">${tc.status.toUpperCase()}</span></td>
+      <td style="font-size:11px;color:var(--muted);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${tc.msg}</td>
+    </tr>`).join('');
+
+  const failureList = (result.failures||[]).map(f =>
+    `<li style="font-size:12px;margin-bottom:4px"><strong>${f.name}</strong>: ${f.message}</li>`
+  ).join('');
+
+  const commentHtml = `
+    <div style="font-size:13px;font-weight:700;margin-bottom:10px">
+      🤖 AutoBot Automation Report — ${t.id}
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+      Triggered by: <strong>Status → Installed in INT</strong> &nbsp;·&nbsp;
+      Tags: ${tags.map(tag => `<span class="rtag">${tag}</span>`).join(' ')} &nbsp;·&nbsp;
+      Duration: ${result.duration}s
+    </div>
+    <div style="font-size:14px;font-weight:700;margin-bottom:10px;
+      color:${result.failed > 0 ? '#de350b' : '#00875a'}">${status}</div>
+    <div class="tr-summary">
+      <div class="tr-stat total"><i class="fas fa-layer-group"></i> ${result.total} Total</div>
+      <div class="tr-stat pass"><i class="fas fa-check-circle"></i> ${result.passed} Passed</div>
+      <div class="tr-stat fail"><i class="fas fa-times-circle"></i> ${result.failed} Failed</div>
+      <div class="tr-stat skip"><i class="fas fa-forward"></i> ${result.skipped} Skipped</div>
+    </div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:5px;color:var(--muted)">
+      Pass Rate: ${pr}%
+      <span style="display:inline-block;background:#dfe1e6;border-radius:99px;
+        width:120px;height:6px;vertical-align:middle;margin-left:8px;overflow:hidden;">
+        <span style="display:block;background:${result.failed>0?'#de350b':'#00875a'};
+          width:${pr}%;height:100%;border-radius:99px;transition:width .5s"></span>
+      </span>
+    </div>
+    <table class="tr-table" style="margin-top:10px;">
+      <thead><tr><th>Test Case</th><th>Status</th><th>Message</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    ${result.failed > 0 ? `
+    <div style="margin-top:10px;padding:10px;background:var(--failbg);border-radius:4px;
+      border-left:3px solid var(--fail);">
+      <div style="font-size:12px;font-weight:700;color:var(--fail);margin-bottom:5px">
+        Failed Tests:
+      </div>
+      <ul style="padding-left:16px">${failureList}</ul>
+    </div>` : ''}
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+      <span class="attachment-chip"><i class="fas fa-paperclip"></i> report.html</span>
+      <span class="attachment-chip"><i class="fas fa-paperclip"></i> log.html</span>
+      <span class="attachment-chip"><i class="fas fa-paperclip"></i> output.xml</span>
+    </div>`;
+
+  // Add as bot comment
+  const comment = {
+    id:      Date.now(),
+    author:  '🤖 AutoBot',
+    time:    'Today ' + now,
+    content: commentHtml,
+    isBot:   true,
+    avatar:  '#0052cc'
+  };
+  currentTicket.comments.push(comment);
+  currentTicket.testResults = result;
+  renderComments();
+}
+
+/* ── COMMENTS ─────────────────────────────────────────────── */
+function addComment() {
+  const inp = document.getElementById('comment-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  const now = new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+  currentTicket.comments.push({
+    id: Date.now(), author: ME,
+    time: 'Today ' + now, content: text, isBot: false,
+    avatar: '#6554c0'
+  });
+  inp.value = '';
+  renderComments();
+  persistTicket(currentTicket);
+}
+
+function addSystemComment(html) {
+  const now = new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+  currentTicket.comments.push({
+    id: Date.now(), author: 'System', time: 'Today ' + now,
+    content: html, isBot: false, isSystem: true, avatar: '#97a0af'
+  });
+  renderComments();
+}
+
+function renderComments() {
+  const list = document.getElementById('comments-list');
+  if (!list) return;
+  list.innerHTML = currentTicket.comments.map(c => {
+    if (c.isSystem) return `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;
+        font-size:12px;color:var(--muted);border-bottom:1px solid var(--border2);">
+        <i class="fas fa-circle" style="font-size:7px"></i>
+        ${c.content} &nbsp;·&nbsp; ${c.time}
+      </div>`;
+    return `
+      <div class="comment-entry">
+        <div class="ce-av" style="background:${c.avatar}">${c.author.charAt(0).toUpperCase()}</div>
+        <div class="ce-body">
+          <div class="ce-header">
+            <span class="ce-name">${c.author}</span>
+            <span class="ce-time">${c.time}</span>
+          </div>
+          <div class="ce-content ${c.isBot ? 'bot-comment' : ''}">${c.content}</div>
+        </div>
+      </div>`;
+  }).join('');
+  list.scrollTop = list.scrollHeight;
+}
+
+/* ── CREATE ISSUE ─────────────────────────────────────────── */
+function openCreateModal()  { document.getElementById('create-modal').classList.add('open'); }
+function closeCreateModal() { document.getElementById('create-modal').classList.remove('open'); }
+document.getElementById('create-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeCreateModal();
+});
+
+async function createIssue() {
+  const title    = document.getElementById('new-title').value.trim();
+  const desc     = document.getElementById('new-desc').value.trim();
+  const priority = document.getElementById('new-priority').value;
+  const urgency  = document.getElementById('new-urgency').value;
+  const service  = document.getElementById('new-service').value.trim() || 'General';
+  const tagsRaw  = document.getElementById('new-tags').value.trim();
+  const reporter = document.getElementById('new-reporter').value.trim() || ME;
+  if (!title) { alert('Summary is required'); return; }
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : ['regression'];
+
+  const payload = {
+    title, desc: desc || title, priority, urgency, service,
+    robotTags: tags, reporter, source: 'jira'
+  };
+
+  let newTicket = null;
+  if (usingBackend) {
+    try {
+      const res = await fetch(`${API_BASE}/api/tickets?username=${encodeURIComponent(ME)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        newTicket = data.ticket;
+      }
+    } catch (_) { /* fall through to local-only ticket below */ }
+  }
+
+  if (!newTicket) {
+    // Backend unreachable — create it locally so the demo still works;
+    // it just won't be visible from the portal until the backend is back.
+    newTicket = {
+      id: 'IT-' + (10 + tickets.length + 1), title, status:'Open', priority, urgency,
+      impact:'Moderate / Limited', service, reporter, assignee: null, desc: desc || title,
+      robotTags: tags, reqType:'Report a system problem',
+      severity:'None', labels:'None', comments:[],
+      created:'Just now', updated:'Just now', testResults: null
+    };
+  }
+
+  tickets.unshift(newTicket);
+
+  // clear form
+  ['new-title','new-desc','new-service','new-tags','new-reporter'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  closeCreateModal();
+  renderTicketList();
+  showToast(`✅ ${newTicket.id} created${usingBackend ? '' : ' (local only — backend unreachable)'}`, 'success');
+}
+
+/* ── VIEW HELPERS ─────────────────────────────────────────── */
+function showListView(fromNav) {
+  document.getElementById('ticket-list-view').style.display   = 'block';
+  document.getElementById('ticket-detail-view').style.display = 'none';
+  document.getElementById('reports-view').style.display       = 'none';
+  document.getElementById('right-panel').style.display        = 'none';
+  if (fromNav) {
+    document.getElementById('nav-queues').classList.add('active');
+    document.getElementById('nav-reports').classList.remove('active');
+  }
+}
+function showDetailView() {
+  document.getElementById('ticket-list-view').style.display   = 'none';
+  document.getElementById('ticket-detail-view').style.display = 'block';
+  document.getElementById('reports-view').style.display       = 'none';
+  document.getElementById('right-panel').style.display        = 'block';
+}
+function backToList() { showListView(true); }
+
+/* ── BUG REPORT VIEW ("show all bugs on the jira page with report") ─────── */
+function showReportsView() {
+  document.getElementById('ticket-list-view').style.display   = 'none';
+  document.getElementById('ticket-detail-view').style.display = 'none';
+  document.getElementById('reports-view').style.display       = 'block';
+  document.getElementById('right-panel').style.display        = 'none';
+  document.getElementById('nav-queues').classList.remove('active');
+  document.getElementById('nav-reports').classList.add('active');
+  loadBugReports();
+}
+
+async function loadBugsCount() {
+  try {
+    const res = await fetch(`${API_BASE}/api/registry`);
+    if (!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    document.getElementById('bugs-count').textContent = (data.bugs || []).length;
+  } catch (_) { /* leave default */ }
+}
+
+async function loadBugReports() {
+  const body = document.getElementById('report-rows');
+  body.innerHTML = `<tr><td colspan="7" style="padding:20px 24px;color:var(--muted)">Loading…</td></tr>`;
+  let bugs = [];
+  try {
+    const res = await fetch(`${API_BASE}/api/registry`);
+    if (!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    bugs = data.bugs || [];
+  } catch (_) {
+    body.innerHTML = `<tr><td colspan="7" style="padding:20px 24px;color:var(--fail)">Could not reach the backend — is Flask running on ${API_BASE}?</td></tr>`;
+    return;
+  }
+
+  document.getElementById('rep-total').textContent    = bugs.length;
+  document.getElementById('rep-critical').textContent = bugs.filter(b => ['Critical','High'].includes(b.priority)).length;
+  document.getElementById('rep-envs').textContent      = new Set(bugs.map(b => b.env || '—')).size;
+  document.getElementById('bugs-count').textContent    = bugs.length;
+
+  if (!bugs.length) {
+    body.innerHTML = `<tr><td colspan="7" style="padding:20px 24px;color:var(--muted)">No bugs raised yet.</td></tr>`;
+    return;
+  }
+
+  const priColor = { Critical:'var(--fail)', High:'#ff5630', Medium:'#ff8b00', Low:'var(--accent)' };
+  body.innerHTML = [...bugs].reverse().map(b => `
+    <tr style="border-bottom:1px solid var(--border2)">
+      <td style="padding:10px 24px;font-size:12px;font-weight:600;color:var(--accent)">${b.jiraKey || b.key || '—'}</td>
+      <td style="padding:10px 16px;font-size:13px">${b.testCaseName || b.name || '—'}</td>
+      <td style="padding:10px 16px;font-size:12px;color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.errorMessage || '—'}</td>
+      <td style="padding:10px 16px;font-size:12px">${b.env || '—'}</td>
+      <td style="padding:10px 16px;font-size:12px;font-weight:600;color:${priColor[b.priority]||'var(--muted)'}">${b.priority || 'Medium'}</td>
+      <td style="padding:10px 16px;font-size:12px">${b.raisedBy || b.user || '—'}</td>
+      <td style="padding:10px 16px;font-size:12px;color:var(--muted)">${b.time || '—'}</td>
+    </tr>`).join('');
+}
+
+/* ── ASSIGN ───────────────────────────────────────────────── */
+function assignToMe() {
+  if (!currentTicket) return;
+  currentTicket.assignee = ME;
+  document.getElementById('rp-assignee').textContent = ME;
+  addSystemComment(`Assignee set to <strong>${ME}</strong>`);
+  persistTicket(currentTicket);
+  showToast('Assigned to ' + ME, 'success');
+}
+
+/* ── TOAST ────────────────────────────────────────────────── */
+function showToast(msg, type) {
+  const toast = document.getElementById('trigger-toast');
+  const isBot = type === 'trigger';
+  toast.style.background = isBot    ? '#0052cc'
+    : type === 'success' ? '#00875a'
+    : type === 'info'    ? '#0052cc' : '#de350b';
+  document.getElementById('tt-title-text').textContent = isBot ? '🤖 AutoBot Triggered' : '✓ Done';
+  document.getElementById('tt-body').textContent       = msg;
+  toast.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => toast.classList.remove('show'), 4500);
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+function toggleActionMenu() { showToast('Actions menu — coming soon', 'info'); }
+</script>
+</body>
+</html>
