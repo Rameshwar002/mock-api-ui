@@ -1152,8 +1152,10 @@ async function confirmRun(yes) {
   const { rowIds } = createStepStream(STEPS);
 
   try {
-    // Include ticketId and tags if this is a ticket-based run
-    const r = await fetch('http://localhost:8000/confirm_run', {
+    // Ticket-based runs: the backend does understand+generate+execute
+    // entirely in a background thread and returns almost immediately.
+    // Poll /status below for real progress (stage) and the analysis note.
+    await fetch('http://localhost:8000/confirm_run', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         params:   pendingParams,
@@ -1162,8 +1164,6 @@ async function confirmRun(yes) {
         tags:     pendingParams.tags     || [],
       })
     });
-    const d = await r.json();
-    if (d.analysis?.note) botMsg(d.analysis.note);
   } catch(_) {}
 
   const startMs = Date.now();
@@ -1174,15 +1174,32 @@ async function confirmRun(yes) {
   setStep(rowIds[3],'running','Dispatching to Robot Framework…',ts());
   sysLog('Robot Framework execution started','info');
 
+  const STAGE_LABEL = {
+    understanding: 'Understanding ticket…',
+    generating:    'Generating test script…',
+    executing:     'Executing test suite…',
+    completed:     'Finishing up…',
+  };
   let result = null;
+  let noteShown = false;
   for (let poll=0; poll<120; poll++) {
     await delay(1500);
     const elapsed = Math.round((Date.now()-startMs)/1000);
-    setStep(rowIds[3],'running',`Running… ${elapsed}s elapsed`,ts());
     try {
       const r = await fetch('http://localhost:8000/status'); const d = await r.json();
+      const stageLabel = STAGE_LABEL[d.stage] || 'Running…';
+      setStep(rowIds[3],'running',`${stageLabel} (${elapsed}s elapsed)`,ts());
+      if (!noteShown && d.analysis?.note) { botMsg(d.analysis.note); noteShown = true; }
       if (d.status==='completed') { result=d; break; }
     } catch(_) { if(elapsed>=6){ result=genDemo(); break; } }
+  }
+  // Backend never reported completion within the poll window — don't leave
+  // the UI frozen here; fall back to a clearly-labelled demo result and tell
+  // the user, instead of silently hanging (this was the "stuck in Executing"
+  // bug: result stayed null and the next line crashed on result.failed).
+  if (!result) {
+    botMsg('⚠️ The backend didn\'t report completion in time — showing a demo result. Check the Flask server logs; the run may still be in progress there.');
+    result = genDemo();
   }
   setStep(rowIds[3],'done','Execution finished',ts()); sysLog('Execution complete','ok');
 
