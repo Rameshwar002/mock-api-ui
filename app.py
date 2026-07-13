@@ -315,6 +315,9 @@ app = Flask(__name__, static_folder=PUBLIC_DIR)
 _state_lock = threading.Lock()
 execution_state = {
     "status":      "idle",   # idle | running | completed
+    "stage":       None,     # understanding | generating | executing | None
+    "mode":        None,     # real | demo | None
+    "analysis":    None,     # {matchedTests, generated, note} once known (ticket runs)
     "total":       0,
     "passed":      0,
     "failed":      0,
@@ -404,14 +407,20 @@ def _analyze_ticket(ticket):
     """Understand a ticket and decide which test case(s) it needs.
     Returns (matched, missing) — matched catalog entries (whose backing .robot
     file genuinely exists on disk) vs. tags with no real coverage yet.
-    A catalog entry pointing at a file that was never actually created counts
-    as MISSING, not matched — AutoBot generates the real file rather than
-    silently trusting a stale catalog record."""
+
+    An entry only counts as a match if:
+      - it's a pre-authored entry (no "generatedFor") — these are globally
+        reusable by tag, OR
+      - it was auto-generated specifically FOR THIS ticket — auto-generated
+        scripts are scoped per-ticket (named after the ticket ID), so a
+        different ticket sharing the same tag still gets its own script."""
     catalog = _load_catalog()
     tags = ticket.get("robotTags") or ["regression"]
     matched, missing = [], []
     for tag in tags:
-        entry = next((c for c in catalog if c.get("tag", "").lower() == tag.lower()), None)
+        candidates = [c for c in catalog if c.get("tag", "").lower() == tag.lower()]
+        entry = next((c for c in candidates
+                      if not c.get("generatedFor") or c.get("generatedFor") == ticket["id"]), None)
         entry_file = os.path.join(BASE, entry["file"]) if entry else None
         if entry and entry_file and os.path.exists(entry_file):
             matched.append(entry)
@@ -619,64 +628,93 @@ def _fallback_scenarios(ticket, tag, resolved):
     return scenarios
 
 
-def _generate_script(tag, ticket, region="US", env="DEV"):
-    """Generate a Robot Framework API test script for a tag with no existing
-    coverage: resolve which application/endpoint/URL applies (config/api_specs.json,
-    the 'brain'), design positive + negative scenarios (via the local LLM if
-    reachable, otherwise a deterministic fallback), render the .robot file,
-    and register it in the catalog so it's found next time."""
-    safe_tag  = re.sub(r"[^a-zA-Z0-9_]+", "_", tag.strip().lower()).strip("_") or "case"
-    fname     = f"{safe_tag}_generated.robot"
-    fpath     = os.path.join(TESTS_DIR, fname)
+def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
+    """Generate ONE Robot Framework file for this ticket, named after the
+    ticket ID (tests/{TICKET_ID}_generated.robot) — not per-tag — covering
+    every missing tag in a single suite. For each tag: resolve which
+    application/endpoint/URL applies (config/api_specs.json, the 'brain'),
+    design positive + negative scenarios (via the local LLM if reachable,
+    otherwise a deterministic fallback), and register each tag in the
+    catalog (scoped to this ticket) so it's found next time — for THIS
+    ticket only; a different ticket sharing the same tag still gets its
+    own generated file, so filenames never collide across tickets.
 
-    resolved     = _resolve_endpoint(tag, region, env)
-    llm_scenarios = _call_llm_for_scenarios(ticket, tag, resolved) if resolved else None
-    scenarios     = llm_scenarios or _fallback_scenarios(ticket, tag, resolved)
-    generated_via = "llm" if llm_scenarios else "template"
+    Returns the list of new catalog entries (one per generated tag)."""
+    ticket_id  = ticket["id"]
+    safe_id    = re.sub(r"[^a-zA-Z0-9_-]+", "_", ticket_id)
+    fname      = f"{safe_id}_generated.robot"
+    fpath      = os.path.join(TESTS_DIR, fname)
 
-    base_url = resolved["base_url"] if resolved else "https://api.example.com"
-    endpoint = resolved["endpoint"] if resolved else {"method": "GET", "path": "/api/v1/unknown", "description": ""}
-    app_name = resolved["application"] if resolved else "Unresolved application"
-    method   = endpoint["method"].upper()
-    ep_path  = endpoint["path"]
-
-    method_kw = {"GET": "Get On Session", "POST": "Post On Session", "PUT": "Put On Session",
-                 "DELETE": "Delete On Session", "PATCH": "Patch On Session"}.get(method, "Get On Session")
-
+    sessions   = {}   # application name -> (alias, base_url)
     case_blocks = []
-    for sc in scenarios:
-        name = re.sub(r"[^a-zA-Z0-9_]+", "_", sc.get("name", "Scenario")).strip("_")
-        case_name = f"{ticket['id']}_{safe_tag.capitalize()}_{name}"
-        sc_path  = sc.get("path", ep_path)
-        use_auth = sc.get("auth", True)  # default on — most mock endpoints require it
-        header_kw = "    &{headers}=    Create Dictionary    Authorization=Bearer mock-token\n" if use_auth else ""
-        headers_arg = "    headers=${headers}" if use_auth else ""
+    entries    = []
 
-        payload = sc.get("payload")
-        if payload is not None and method in ("POST", "PUT", "PATCH"):
-            body_line = (f"{header_kw}"
-                         f"    ${{resp}}=    {method_kw}    api    {sc_path}"
-                         f"    json={json.dumps(payload)}{headers_arg}    expected_status=any")
-        else:
-            body_line = (f"{header_kw}"
-                         f"    ${{resp}}=    {method_kw}    api    {sc_path}{headers_arg}    expected_status=any")
+    for tag in missing_tags:
+        safe_tag = re.sub(r"[^a-zA-Z0-9_]+", "_", tag.strip().lower()).strip("_") or "case"
+        resolved = _resolve_endpoint(tag, region, env)
+        llm_scenarios = _call_llm_for_scenarios(ticket, tag, resolved) if resolved else None
+        scenarios     = llm_scenarios or _fallback_scenarios(ticket, tag, resolved)
+        generated_via = "llm" if llm_scenarios else "template"
 
-        case_blocks.append(f"""{case_name}
+        base_url = resolved["base_url"] if resolved else "https://api.example.com"
+        endpoint = resolved["endpoint"] if resolved else {"method": "GET", "path": "/api/v1/unknown", "description": ""}
+        app_name = resolved["application"] if resolved else "Unresolved application"
+        method   = endpoint["method"].upper()
+        ep_path  = endpoint["path"]
+
+        if app_name not in sessions:
+            sessions[app_name] = (re.sub(r"[^a-zA-Z0-9_]+", "_", app_name.lower()), base_url)
+        alias = sessions[app_name][0]
+
+        method_kw = {"GET": "Get On Session", "POST": "Post On Session", "PUT": "Put On Session",
+                     "DELETE": "Delete On Session", "PATCH": "Patch On Session"}.get(method, "Get On Session")
+
+        for sc in scenarios:
+            name = re.sub(r"[^a-zA-Z0-9_]+", "_", sc.get("name", "Scenario")).strip("_")
+            case_name = f"{ticket_id}_{safe_tag.capitalize()}_{name}"
+            sc_path  = sc.get("path", ep_path)
+            use_auth = sc.get("auth", True)
+            header_kw   = "    &{headers}=    Create Dictionary    Authorization=Bearer mock-token\n" if use_auth else ""
+            headers_arg = "    headers=${headers}" if use_auth else ""
+
+            payload = sc.get("payload")
+            if payload is not None and method in ("POST", "PUT", "PATCH"):
+                body_line = (f"{header_kw}"
+                             f"    ${{resp}}=    {method_kw}    {alias}    {sc_path}"
+                             f"    json={json.dumps(payload)}{headers_arg}    expected_status=any")
+            else:
+                body_line = (f"{header_kw}"
+                             f"    ${{resp}}=    {method_kw}    {alias}    {sc_path}{headers_arg}    expected_status=any")
+
+            case_blocks.append(f"""{case_name}
     [Documentation]    {sc.get('description','')}
-    [Tags]    {sc.get('type','positive')}    {safe_tag}    {ticket['id']}
+    [Tags]    {sc.get('type','positive')}    {safe_tag}    {ticket_id}
 {body_line}
     Status Should Be    {sc.get('expected_status', 200)}    ${{resp}}
 """)
 
+        entries.append({
+            "tag": tag, "name": f"{ticket_id}_{safe_tag.capitalize()}_Suite", "file": f"tests/{fname}",
+            "suite": "Generated", "generatedFor": ticket_id, "generatedAt": _now(),
+            "application": app_name, "endpoint": f"{method} {ep_path}", "baseUrl": base_url,
+            "scenarios": [{"name": s.get("name"), "type": s.get("type")} for s in scenarios],
+            "generatedVia": generated_via,
+        })
+
+    setup_lines = "\n".join(f"    Create Session    {alias}    {url}" for alias, url in sessions.values())
     content = f"""*** Settings ***
-Documentation    Auto-generated by AutoBot for ticket {ticket['id']} — {ticket.get('title','')}
-...              No existing test case covered tag '{tag}', so AutoBot resolved
-...              {app_name} → {method} {ep_path} from config/api_specs.json
-...              and generated positive + negative scenarios ({generated_via}).
+Documentation    Auto-generated by AutoBot for ticket {ticket_id} — {ticket.get('title','')}
+...              Covers tag(s) with no existing coverage: {', '.join(missing_tags)}
+...              Resolved against config/api_specs.json and generated positive +
+...              negative scenarios per tag.
 Library          RequestsLibrary
 Library          Collections
-Suite Setup      Create Session    api    {base_url}
-Force Tags       {safe_tag}    {ticket['id']}    auto-generated
+Suite Setup      Initialize Sessions
+Force Tags       {ticket_id}    auto-generated
+
+*** Keywords ***
+Initialize Sessions
+{setup_lines}
 
 *** Test Cases ***
 {"".join(case_blocks)}"""
@@ -685,18 +723,13 @@ Force Tags       {safe_tag}    {ticket['id']}    auto-generated
     with open(fpath, "w") as f:
         f.write(content)
 
-    entry = {
-        "tag": tag, "name": f"{ticket['id']}_{safe_tag.capitalize()}_Suite", "file": f"tests/{fname}",
-        "suite": "Generated", "generatedFor": ticket["id"], "generatedAt": _now(),
-        "application": app_name, "endpoint": f"{method} {ep_path}", "baseUrl": base_url,
-        "scenarios": [{"name": s.get("name"), "type": s.get("type")} for s in scenarios],
-        "generatedVia": generated_via,
-    }
+    # Replace any previous entries generated for THIS ticket (a re-run
+    # regenerates cleanly) — leave every other ticket's/tag's entries alone.
     catalog = _load_catalog()
-    catalog = [c for c in catalog if c.get("tag", "").lower() != tag.lower()]
-    catalog.append(entry)
+    catalog = [c for c in catalog if c.get("generatedFor") != ticket_id]
+    catalog.extend(entries)
     _save_catalog(catalog)
-    return entry
+    return entries
 
 
 # ── AUTH DECORATOR ────────────────────────────────────────────────────────────
@@ -782,33 +815,34 @@ def _demo_result():
 
 def run_robot_tests(test_type, region, env, user, target_files=None):
     """Run Robot Framework in a thread; fall back to demo data if Robot
-    Framework isn't actually installed/runnable.
-
-    target_files: for ticket-based runs, the exact list of resolved .robot
-    file paths to execute (the ticket's matched + freshly-generated scripts)
-    — NOT a fuzzy `--include <tag>` guess across the whole tests directory.
-    If omitted (suite-based runs from chat.html), falls back to the old
-    behaviour of including everything under TESTS_DIR tagged with test_type.
-    """
-    global execution_state
-
+    Framework isn't actually installed/runnable. Used directly for
+    suite-based (non-ticket) runs. Ticket-based runs go through
+    _run_ticket_pipeline instead, which also handles the understand/generate
+    steps before calling _execute_robot."""
     with _state_lock:
         execution_state.update({
             "status":      "running",
+            "stage":       "executing",
             "total":       0, "passed": 0, "failed": 0, "skipped": 0,
             "test_type":   test_type,
             "region":      region,
             "env":         env,
             "user":        user,
-            "mode":        None,   # set to "real" or "demo" once we know
+            "mode":        None,
+            "analysis":    None,
             "started_at":  _now(),
             "finished_at": None,
             "duration_s":  0,
             "failures":    [],
         })
-
     _add_feed(user, f"started {test_type} · {region} · {env}", "run")
+    _execute_robot(test_type, region, env, user, target_files)
 
+
+def _execute_robot(test_type, region, env, user, target_files=None):
+    """The actual subprocess/parse/demo-fallback core, shared by both
+    suite-based and ticket-based runs. Assumes execution_state["status"] is
+    already "running" and "started_at" already set by the caller."""
     if target_files:
         cmd = [
             sys.executable, "-m", "robot",
@@ -862,6 +896,7 @@ def run_robot_tests(test_type, region, env, user, target_files=None):
 
     with _state_lock:
         execution_state["status"]      = "completed"
+        execution_state["stage"]       = "completed"
         execution_state["finished_at"] = finished.isoformat()
         execution_state["duration_s"]  = duration
 
@@ -887,6 +922,74 @@ def run_robot_tests(test_type, region, env, user, target_files=None):
     status_word = "completed with failures" if execution_state["failed"] > 0 else "passed all tests"
     _add_feed(user, f"run {status_word} — {execution_state['passed']}P {execution_state['failed']}F",
               "fail" if execution_state["failed"] > 0 else "pass")
+
+
+def _run_ticket_pipeline(ticket_id, region, env, user):
+    """The full ticket-based run, entirely inside a background thread so the
+    HTTP request that triggered it (POST /confirm_run or
+    POST /api/tickets/<id>/run) returns almost immediately — the caller
+    should NOT block on this. Progress is reported via execution_state,
+    which the frontend polls (GET /status): stage moves
+    'understanding' -> 'generating' (only if needed) -> 'executing' -> done.
+    This is what fixes runs appearing to 'hang' — before, the understand +
+    generate step ran synchronously inside the request handler, so a slow
+    local LLM call meant the client's fetch() just sat there with no
+    visible progress at all."""
+    with _state_lock:
+        execution_state.update({
+            "status": "running", "stage": "understanding",
+            "total": 0, "passed": 0, "failed": 0, "skipped": 0,
+            "test_type": ticket_id, "region": region, "env": env, "user": user,
+            "mode": None, "analysis": None,
+            "started_at": _now(), "finished_at": None, "duration_s": 0,
+            "failures": [],
+        })
+    _add_feed(user, f"started {ticket_id} · {region} · {env}", "run")
+
+    tickets = _load_tickets()
+    idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
+    if idx is None:
+        with _state_lock:
+            execution_state["status"] = "completed"
+            execution_state["stage"] = "completed"
+            execution_state["finished_at"] = _now()
+            execution_state["failures"].append({"name": "TICKET_NOT_FOUND", "message": f"{ticket_id} not found."})
+        return
+    tk = tickets[idx]
+
+    matched, missing = _analyze_ticket(tk)
+    if missing:
+        with _state_lock:
+            execution_state["stage"] = "generating"
+        generated = _generate_ticket_script(tk, missing, region, env)
+    else:
+        generated = []
+
+    if generated:
+        gen_desc = ", ".join(
+            f"{g['name']} ({g.get('application','?')} → {g.get('endpoint','?')}, "
+            f"{len(g.get('scenarios', []))} scenarios, via {g.get('generatedVia','template')})"
+            for g in generated
+        )
+        note = (f"🤖 AutoBot: no existing test case for tag(s) "
+                f"[{', '.join(missing)}] — generated {gen_desc} before running.")
+    else:
+        note = f"🤖 AutoBot: matched existing test case(s) — {', '.join(m['name'] for m in matched)}." \
+               if matched else "🤖 AutoBot: no tags to resolve — running as-is."
+
+    tk.setdefault("comments", []).append({
+        "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
+        "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
+    })
+    tickets[idx] = tk
+    _save_tickets(tickets)
+
+    with _state_lock:
+        execution_state["analysis"] = {"matchedTests": matched, "generated": generated, "note": note}
+        execution_state["stage"] = "executing"
+
+    target_files = [os.path.join(BASE, e["file"]) for e in (matched + generated)]
+    _execute_robot(ticket_id, region, env, user, target_files)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -982,48 +1085,21 @@ def confirm_run():
     region    = params.get("region", "US")
     env       = params.get("env", "DEV")
 
-    analysis = None
-    target_files = None
-
-    # ── Ticket-based run: understand the ticket before running ────────────
-    # 1) load the ticket, 2) check the test catalog (data source) for each
-    # tag, 3) auto-generate a script for any tag with no existing coverage,
-    # 4) run everything.
+    # ── Ticket-based run ────────────────────────────────────────────────
+    # Understanding the ticket + generating any missing script(s) can take
+    # real time (a local LLM call per tag), so this ALWAYS happens inside
+    # the background thread — never inline here. The endpoint returns
+    # immediately; poll GET /status for "stage" (understanding -> generating
+    # -> executing) and the "analysis" field once it's ready.
     if ticket_id:
-        tickets = _load_tickets()
-        idx = next((i for i, tk in enumerate(tickets) if tk.get("id") == ticket_id), None)
-        if idx is not None:
-            tk = tickets[idx]
-            matched, missing = _analyze_ticket(tk)
-            generated = [_generate_script(tag, tk, region, env) for tag in missing]
-            if generated:
-                gen_desc = ", ".join(
-                    f"{g['name']} ({g.get('application','?')} → {g.get('endpoint','?')}, "
-                    f"{len(g.get('scenarios', []))} scenarios, via {g.get('generatedVia','template')})"
-                    for g in generated
-                )
-                note = (f"🤖 AutoBot: no existing test case for tag(s) "
-                         f"[{', '.join(missing)}] — generated {gen_desc} before running.")
-            else:
-                note = f"🤖 AutoBot: matched existing test case(s) — {', '.join(m['name'] for m in matched)}."
-            tk.setdefault("comments", []).append({
-                "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
-                "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
-            })
-            tickets[idx] = tk
-            _save_tickets(tickets)
-            test_type = ticket_id
-            analysis = {"matchedTests": matched, "generated": generated, "note": note}
-            # Run exactly the resolved scripts — matched (real, on-disk) + newly generated.
-            target_files = [os.path.join(BASE, e["file"]) for e in (matched + generated)]
+        t = threading.Thread(target=_run_ticket_pipeline, args=(ticket_id, region, env, user), daemon=True)
+        t.start()
+        return _ok({"status": "started", "ticketId": ticket_id})
 
-    t = threading.Thread(
-        target=run_robot_tests,
-        args=(test_type, region, env, user, target_files),
-        daemon=True,
-    )
+    # ── Suite-based run (no ticket) ─────────────────────────────────────
+    t = threading.Thread(target=run_robot_tests, args=(test_type, region, env, user), daemon=True)
     t.start()
-    return _ok({"status": "started", "analysis": analysis})
+    return _ok({"status": "started"})
 
 
 @app.route("/status")
@@ -1223,66 +1299,28 @@ def analyze_ticket(ticket_id):
 
 @app.route("/api/tickets/<ticket_id>/run", methods=["POST"])
 def run_ticket_script(ticket_id):
-    """Run the robot-framework script(s) tied to a ticket. Before running,
-    AutoBot 'understands' the ticket: it checks the test catalog (our data
-    source of already-automated cases) for each of the ticket's tags, and
-    auto-generates a Robot Framework script for any tag with no existing
-    coverage — then runs everything. Works identically whether triggered
-    from jira.html or the portal (dashboard.html)."""
+    """Run the robot-framework script(s) tied to a ticket. Returns
+    immediately — the actual understand/generate/execute pipeline runs in a
+    background thread (_run_ticket_pipeline). Poll GET /status for progress
+    ("stage": understanding -> generating -> executing) and the "analysis"
+    field once it's ready. Works identically whether triggered from
+    jira.html or the portal (dashboard.html)."""
     if execution_state.get("status") == "running":
         return _err("A run is already in progress.", 409)
 
     tickets = _load_tickets()
-    idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
-    if idx is None:
+    if not any(t.get("id") == ticket_id for t in tickets):
         return _err(f"{ticket_id} not found.", 404)
-    t = tickets[idx]
 
-    body = request.get_json(silent=True) or {}
+    body   = request.get_json(silent=True) or {}
     user   = request.args.get("username") or body.get("user", "unknown")
     region = (request.args.get("region") or body.get("region") or "US").upper()
     env    = (request.args.get("env")    or body.get("env")    or "INT").upper()
 
-    # ── Understand the ticket & decide what needs testing ──────────────────
-    matched, missing = _analyze_ticket(t)
-    generated = [_generate_script(tag, t, region, env) for tag in missing]
-
-    # Record what happened as a ticket comment (visible in jira.html)
-    if generated:
-        gen_desc = ", ".join(
-            f"{g['name']} ({g.get('application','?')} → {g.get('endpoint','?')}, "
-            f"{len(g.get('scenarios', []))} scenarios, via {g.get('generatedVia','template')})"
-            for g in generated
-        )
-        note = (f"🤖 AutoBot: no existing test case for tag(s) "
-                f"[{', '.join(missing)}] — generated {gen_desc} before running.")
-    else:
-        note = f"🤖 AutoBot: matched existing test case(s) — {', '.join(m['name'] for m in matched)}."
-    t.setdefault("comments", []).append({
-        "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
-        "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
-    })
-    tickets[idx] = t
-    _save_tickets(tickets)
-
-    target_files = [os.path.join(BASE, e["file"]) for e in (matched + generated)]
-    thread = threading.Thread(
-        target=run_robot_tests,
-        args=(ticket_id, region, env, user, target_files),
-        daemon=True,
-    )
+    thread = threading.Thread(target=_run_ticket_pipeline, args=(ticket_id, region, env, user), daemon=True)
     thread.start()
-    _add_feed(user, f"ran script for ticket {ticket_id}", "ticket")
 
-    return _ok({
-        "status": "started",
-        "ticketId": ticket_id,
-        "analysis": {
-            "matchedTests": matched,
-            "generated": generated,
-            "note": note,
-        },
-    })
+    return _ok({"status": "started", "ticketId": ticket_id})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
