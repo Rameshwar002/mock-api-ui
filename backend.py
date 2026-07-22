@@ -35,22 +35,85 @@ CORS(app)
 #
 # If plantuml.jar is not found, rendering automatically falls back to the
 # public Kroki.io service (requires internet access).
-PLANTUML_JAR = _os.getenv(
-    "PLANTUML_JAR",
+PLANTUML_JAR = _os.getenv("PLANTUML_JAR", "")
+
+# ── Auto-scan common plantuml.jar locations ────────────────────────────────
+_PLANTUML_SCAN_PATHS = [
+    # Same folder as backend.py (recommended)
     _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "plantuml.jar"),
-)
-JAVA_BIN     = _os.getenv("JAVA_BIN", "java")
+    # Home directory
+    _os.path.expanduser("~/plantuml.jar"),
+    _os.path.expanduser("~/.local/bin/plantuml.jar"),
+    # Common system locations
+    "/usr/local/bin/plantuml.jar",
+    "/usr/share/plantuml/plantuml.jar",
+    "/opt/plantuml/plantuml.jar",
+    # Windows common
+    "C:/plantuml/plantuml.jar",
+    "C:/tools/plantuml/plantuml.jar",
+]
+
+def _find_plantuml_jar():
+    """Scan known paths for plantuml.jar and return the first found."""
+    global PLANTUML_JAR
+    # Env var takes priority
+    if PLANTUML_JAR and _os.path.exists(PLANTUML_JAR):
+        return PLANTUML_JAR
+    for path in _PLANTUML_SCAN_PATHS:
+        if _os.path.exists(path):
+            PLANTUML_JAR = path
+            print(f"[PlantUML] Found plantuml.jar at: {path}")
+            return path
+    # Not found
+    PLANTUML_JAR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "plantuml.jar")
+    print(f"[PlantUML] plantuml.jar not found. Will use Kroki.io fallback.")
+    print(f"[PlantUML] To enable local rendering, place plantuml.jar here:")
+    print(f"[PlantUML]   {PLANTUML_JAR}")
+    print(f"[PlantUML] Download: https://plantuml.com/download")
+    return None
+
+JAVA_BIN = _os.getenv("JAVA_BIN", "java")
 RENDER_CACHE_DIR = _os.path.join(tempfile.gettempdir(), "puml_render_cache")
 _os.makedirs(RENDER_CACHE_DIR, exist_ok=True)
 
 
 def plantuml_jar_available():
     """Check whether plantuml.jar + Java are both usable."""
-    if not _os.path.exists(PLANTUML_JAR):
+    jar = PLANTUML_JAR if PLANTUML_JAR and _os.path.exists(PLANTUML_JAR) else None
+    if not jar:
         return False
-    if shutil.which(JAVA_BIN) is None and not _os.path.isfile(JAVA_BIN):
+    try:
+        result = subprocess.run(
+            [JAVA_BIN, "-version"],
+            capture_output=True, timeout=5
+        )
+        return result.returncode == 0
+    except Exception:
         return False
-    return True
+
+def get_jar_status():
+    """Return a dict with jar path, availability and download URL."""
+    jar_found = PLANTUML_JAR and _os.path.exists(PLANTUML_JAR)
+    java_ok = False
+    if jar_found:
+        try:
+            r = subprocess.run([JAVA_BIN, "-version"], capture_output=True, timeout=5)
+            java_ok = r.returncode == 0
+        except Exception:
+            pass
+    return {
+        "jar_available":  jar_found and java_ok,
+        "jar_found":      jar_found,
+        "java_found":     java_ok,
+        "jar_path":       PLANTUML_JAR or "(not found)",
+        "scanned_paths":  _PLANTUML_SCAN_PATHS,
+        "download_url":   "https://plantuml.com/download",
+        "renderer":       "plantuml.jar (local)" if (jar_found and java_ok) else "kroki.io (online fallback)",
+        "setup_hint":     (
+            None if (jar_found and java_ok)
+            else f"Place plantuml.jar in: {_PLANTUML_SCAN_PATHS[0]}"
+        ),
+    }
 
 
 def render_with_jar(puml_text: str, fmt: str = "png") -> bytes:
@@ -565,7 +628,7 @@ def health():
         "llm_reachable":llm_ok,
         "llm_error":    llm_err,
         "available_models": model_ids,
-        "renderer":     "plantuml.jar (local)" if plantuml_jar_available() else "kroki.io (online)",
+        "renderer":     get_jar_status()["renderer"],
     })
 
 
@@ -647,11 +710,8 @@ def generate_diagram():
 @app.route("/render-status", methods=["GET"])
 def render_status():
     """Tell the frontend whether local plantuml.jar rendering is available."""
-    return jsonify({
-        "jar_available": plantuml_jar_available(),
-        "jar_path": PLANTUML_JAR,
-        "renderer": "plantuml.jar (local)" if plantuml_jar_available() else "kroki.io (online fallback)",
-    })
+    status = get_jar_status()
+    return jsonify(status)
 
 
 @app.route("/render-diagram", methods=["POST"])
@@ -692,15 +752,31 @@ def export_excel():
     cases    = body.get("cases", [])
     filename = body.get("filename", "testcases.xlsx")
     title    = body.get("title",    "Test Cases")
+
     if not cases:
-        return jsonify({"error":"No cases"}), 400
+        return jsonify({"error": "No test cases to export. Generate or add test cases first."}), 400
+
+    # Sanitise filename - remove any chars that aren't safe for filenames
+    safe_filename = re.sub(r'[^\w\-_\. ]', '_', filename)
+    if not safe_filename.endswith('.xlsx'):
+        safe_filename += '.xlsx'
+
     try:
-        buf = build_excel(cases, sheet_title=title[:31])
-        return send_file(buf, as_attachment=True, download_name=filename,
-                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        buf = build_excel(cases, sheet_title=str(title)[:31])
+
+        # Flask 3.x: use make_response + send_file with BytesIO directly
+        from flask import make_response
+        response = make_response(buf.getvalue())
+        response.headers['Content-Type'] = (
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response.headers['Content-Disposition'] = f'attachment; filename="{safe_filename}"'
+        response.headers['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response
+
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Excel export failed: {str(e)}"}), 500
 
 
 
@@ -836,14 +912,22 @@ if __name__ == "__main__":
     # Auto-detect which LLM is running before starting
     _auto_detect_llm()
 
+    # Scan for plantuml.jar
+    _find_plantuml_jar()
+    jar_status = get_jar_status()
+
     print("=" * 60)
     print("  Multi-Tool Suite — Backend v2.1.0")
     print("=" * 60)
     print(f"  LLM Endpoint : {LLM_BASE_URL}")
     print(f"  LLM Model    : {LLM_MODEL}")
     print(f"  Timeout      : {LLM_TIMEOUT}s")
-    jar_status = "found ✓" if plantuml_jar_available() else "not found (will use Kroki.io)"
-    print(f"  plantuml.jar : {jar_status}")
+    print(f"  Renderer     : {jar_status['renderer']}")
+    if jar_status['jar_found']:
+        print(f"  JAR Path     : {jar_status['jar_path']}")
+    else:
+        print(f"  JAR Setup    : {jar_status['setup_hint']}")
+        print(f"  Download JAR : {jar_status['download_url']}")
     print()
     print("  >>> Open in browser:  http://localhost:5050")
     print()
