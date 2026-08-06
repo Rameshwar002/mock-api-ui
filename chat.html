@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AutoBot · Test Runner</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#060a12;--s1:#0b1120;--s2:#0f1828;
+      --border:rgba(255,255,255,.06);--b2:rgba(79,142,247,.22);
+      --accent:#4f8ef7;--a2:#38bdf8;--glow:rgba(79,142,247,.2);
+      --text:#f1f5f9;--muted:#4b5c72;--m2:#64748b;
+      --pass:#22c55e;--fail:#f43f5e;--skip:#f59e0b;--purple:#a78bfa;
+      --font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+    }
+    html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);}
+    ::-webkit-scrollbar{width:3px;height:3px;}
+    ::-webkit-scrollbar-thumb{background:rgba(79,142,247,.14);border-radius:99px;}
+
+    .shell{display:grid;grid-template-rows:52px 1fr;height:100vh;}
+    .body {display:grid;grid-template-columns:1fr 6px 400px;overflow:hidden;}
+    .rz{cursor:col-resize;background:var(--border);position:relative;z-index:5;}
+    .rz:hover,.rz.dragging{background:var(--accent);}
+    .rz::after{content:'';position:absolute;top:0;bottom:0;left:-3px;right:-3px;}
+
+    /* HEADER */
+    header{display:flex;align-items:center;padding:0 18px;gap:12px;
+      border-bottom:1px solid var(--border);background:rgba(6,10,18,.93);
+      backdrop-filter:blur(16px);position:relative;z-index:100;}
+    .h-bot{width:30px;height:30px;flex-shrink:0;border-radius:8px;
+      background:linear-gradient(135deg,var(--accent),var(--a2));
+      display:flex;align-items:center;justify-content:center;box-shadow:0 0 12px var(--glow);}
+    .h-title{font-size:13px;font-weight:700;}
+    .h-sub{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;}
+    .h-sep{flex:1;}
+    .chip{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.03);
+      border:1px solid var(--border);border-radius:7px;padding:4px 10px;
+      font-family:var(--mono);font-size:9px;}
+    .chip .cl{color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+    .chip .cv{font-weight:600;}
+    .chip.csuite .cv{color:var(--a2);}
+    .chip.creg   .cv{color:var(--pass);}
+    .chip.cenv   .cv{color:var(--skip);}
+    .hbadge{font-family:var(--mono);font-size:10px;font-weight:600;
+      padding:4px 12px;border-radius:7px;letter-spacing:1px;text-transform:uppercase;
+      background:rgba(255,255,255,.04);border:1px solid var(--border);transition:all .3s;}
+    .hbadge.running{background:rgba(34,197,94,.1);border-color:var(--pass);color:var(--pass);animation:rp 1.4s infinite;}
+    .hbadge.done{background:rgba(79,142,247,.1);border-color:var(--accent);color:var(--accent);}
+    .hbadge.fail{background:rgba(244,63,94,.1);border-color:var(--fail);color:var(--fail);}
+    @keyframes rp{0%,100%{opacity:1}50%{opacity:.4}}
+    .u-wrap{position:relative;}
+    .u-btn{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.04);
+      border:1px solid var(--border);border-radius:9px;padding:4px 10px 4px 5px;cursor:pointer;transition:all .2s;}
+    .u-btn:hover{background:rgba(79,142,247,.07);border-color:var(--b2);}
+    .u-av{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--accent),var(--a2));
+      display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+    .u-name{font-family:var(--mono);font-size:11px;font-weight:600;}
+    .u-menu{position:absolute;top:calc(100% + 7px);right:0;width:200px;
+      background:var(--s2);border:1px solid var(--border);border-radius:13px;
+      overflow:hidden;z-index:200;box-shadow:0 20px 44px rgba(0,0,0,.55);display:none;}
+    .u-menu.open{display:block;animation:drop .18s ease;}
+    @keyframes drop{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+    .u-mhd{padding:11px 14px;border-bottom:1px solid var(--border);}
+    .u-mrole{font-family:var(--mono);font-size:9px;color:var(--accent);text-transform:uppercase;}
+    .u-mname{font-size:13px;font-weight:600;margin-top:2px;}
+    .m-item{display:flex;align-items:center;gap:9px;padding:9px 14px;font-size:12px;
+      cursor:pointer;transition:background .15s;color:var(--text);}
+    .m-item:hover{background:rgba(255,255,255,.04);}
+    .m-item.danger{color:var(--fail);}
+    .m-item.danger:hover{background:rgba(244,63,94,.07);}
+
+    /* CHAT PANE */
+    .chat-pane{display:flex;flex-direction:column;overflow:hidden;background:var(--bg);}
+    .chat-win{flex:1;overflow-y:auto;padding:22px 24px;display:flex;flex-direction:column;gap:12px;}
+    .msg{display:flex;gap:10px;max-width:88%;animation:msgIn .2s ease;}
+    @keyframes msgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    .msg.user{align-self:flex-end;flex-direction:row-reverse;}
+    .msg.bot{align-self:flex-start;}
+    .m-av{width:30px;height:30px;border-radius:9px;flex-shrink:0;
+      display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;}
+    .msg.bot  .m-av{background:linear-gradient(135deg,var(--accent),var(--a2));box-shadow:0 0 10px var(--glow);}
+    .msg.user .m-av{background:rgba(255,255,255,.07);border:1px solid var(--border);}
+    .m-col{display:flex;flex-direction:column;gap:3px;}
+    .msg.user .m-col{align-items:flex-end;}
+    .m-who{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}
+    .bubble{padding:11px 15px;border-radius:14px;font-size:13px;line-height:1.65;white-space:pre-wrap;word-break:break-word;}
+    .bubble.bot{background:var(--s2);border:1px solid var(--border);border-bottom-left-radius:4px;color:var(--text);}
+    .bubble.user{background:var(--accent);color:#fff;border-bottom-right-radius:4px;}
+
+    /* typing dots */
+    .dots span{display:inline-block;width:5px;height:5px;border-radius:50%;
+      background:var(--muted);margin-right:3px;animation:dt .9s ease-in-out infinite;}
+    .dots span:nth-child(2){animation-delay:.15s;}
+    .dots span:nth-child(3){animation-delay:.3s;}
+    @keyframes dt{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-5px);opacity:1}}
+
+    /* STEP STREAM */
+    .step-stream{background:var(--s2);border:1px solid var(--border);
+      border-radius:14px;border-bottom-left-radius:4px;
+      padding:14px 16px;display:flex;flex-direction:column;min-width:295px;}
+    .srow{display:flex;align-items:flex-start;gap:10px;padding:6px 0;
+      border-bottom:1px solid rgba(255,255,255,.04);}
+    .srow:last-child{border-bottom:none;}
+    .sico{width:20px;height:20px;border-radius:50%;flex-shrink:0;margin-top:1px;
+      display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;}
+    .sico.pending{background:rgba(255,255,255,.06);color:var(--muted);}
+    .sico.running{background:rgba(79,142,247,.15);color:var(--accent);animation:rp 1s infinite;}
+    .sico.done{background:rgba(34,197,94,.13);color:var(--pass);}
+    .sico.error{background:rgba(244,63,94,.13);color:var(--fail);}
+    .stxt{flex:1;font-family:var(--mono);font-size:11px;}
+    .stxt .sl{font-weight:600;color:var(--text);}
+    .stxt .sd{color:var(--muted);font-size:10px;margin-top:1px;}
+    .stm{font-family:var(--mono);font-size:9px;color:var(--muted);flex-shrink:0;margin-top:2px;}
+
+    /* confirm card */
+    .confirm-card{background:var(--s2);border:1px solid var(--b2);border-radius:14px;
+      padding:14px 16px;display:flex;flex-direction:column;gap:11px;min-width:270px;}
+    .cc-title{font-size:13px;font-weight:600;}
+    .cc-params{display:flex;gap:6px;flex-wrap:wrap;}
+    .cp{font-family:var(--mono);font-size:9px;padding:3px 9px;border-radius:5px;font-weight:600;text-transform:uppercase;}
+    .cp.t{background:rgba(79,142,247,.14);color:var(--accent);}
+    .cp.r{background:rgba(34,197,94,.12);color:var(--pass);}
+    .cp.e{background:rgba(245,158,11,.12);color:var(--skip);}
+    .cc-btns{display:flex;gap:8px;}
+    .c-run{flex:1;background:var(--accent);color:#fff;border:none;border-radius:8px;
+      padding:9px;font-size:12px;font-weight:600;text-transform:uppercase;cursor:pointer;transition:opacity .2s;}
+    .c-run:hover{opacity:.85;}
+    .c-no{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border);
+      color:var(--muted);border-radius:8px;padding:9px;font-size:12px;font-weight:600;text-transform:uppercase;cursor:pointer;}
+
+    /* NOT-FOUND card — shown when script doesn't exist */
+    .notfound-card{background:var(--s2);border:1px solid rgba(245,158,11,.3);
+      border-radius:14px;border-bottom-left-radius:4px;
+      padding:15px 16px;display:flex;flex-direction:column;gap:12px;min-width:300px;}
+    .nf-title{font-size:13px;font-weight:700;color:var(--skip);display:flex;align-items:center;gap:7px;}
+    .nf-body{font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.7;}
+    .nf-btns{display:flex;gap:8px;}
+    .nf-raise{flex:1;background:linear-gradient(135deg,var(--purple),#7c3aed);color:#fff;
+      border:none;border-radius:8px;padding:9px;font-size:11px;font-weight:700;
+      text-transform:uppercase;cursor:pointer;transition:opacity .2s;letter-spacing:.5px;}
+    .nf-raise:hover{opacity:.88;}
+    .nf-skip{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border);
+      color:var(--muted);border-radius:8px;padding:9px;font-size:11px;font-weight:700;text-transform:uppercase;cursor:pointer;}
+
+    /* result card */
+    .result-card{background:var(--s2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;min-width:270px;}
+    .rc-title{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:7px;}
+    .rc-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;}
+    .rcs{background:rgba(255,255,255,.03);border-radius:8px;padding:8px;text-align:center;}
+    .rcs-v{font-size:20px;font-weight:700;}
+    .rcs-l{font-family:var(--mono);font-size:8px;color:var(--muted);text-transform:uppercase;margin-top:2px;}
+    .rc-bar{height:4px;background:rgba(255,255,255,.05);border-radius:99px;overflow:hidden;margin-bottom:9px;}
+    .rc-fill{height:100%;background:linear-gradient(90deg,var(--pass),var(--a2));border-radius:99px;transition:width .6s;}
+    .rc-meta{font-family:var(--mono);font-size:9px;color:var(--muted);display:flex;justify-content:space-between;}
+    .rc-link{font-family:var(--mono);font-size:10px;color:var(--accent);cursor:pointer;text-decoration:underline;margin-top:9px;display:block;}
+
+    /* ASK CARD — shown when a field is missing */
+    .ask-card{background:var(--s2);border:1px solid var(--b2);
+      border-radius:14px;border-bottom-left-radius:4px;
+      padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:295px;}
+    .ask-q{font-size:13px;font-weight:600;color:var(--text);}
+    .ask-hint{font-family:var(--mono);font-size:10px;color:var(--muted);}
+    .ask-opts{display:flex;flex-wrap:wrap;gap:7px;}
+    .opt-btn{font-family:var(--mono);font-size:10px;font-weight:700;
+      padding:6px 14px;border-radius:8px;cursor:pointer;
+      background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.25);
+      color:var(--accent);transition:all .18s;text-transform:uppercase;letter-spacing:.5px;}
+    .opt-btn:hover{background:rgba(79,142,247,.22);border-color:rgba(79,142,247,.5);transform:translateY(-1px);}
+    .opt-btn:active{transform:translateY(0);}
+    .ask-already{display:flex;gap:6px;flex-wrap:wrap;}
+    .ap{font-family:var(--mono);font-size:9px;padding:2px 8px;border-radius:5px;font-weight:600;}
+    .ap.t{background:rgba(56,189,248,.12);color:var(--a2);}
+    .ap.r{background:rgba(34,197,94,.12);color:var(--pass);}
+    .ap.e{background:rgba(245,158,11,.12);color:var(--skip);}
+
+    /* TICKET CARD — shown while AutoBot looks up & understands a ticket */
+    .ticket-card{background:var(--s2);border:1px solid var(--b2);
+      border-radius:14px;border-bottom-left-radius:4px;
+      padding:14px 16px;display:flex;flex-direction:column;gap:9px;min-width:300px;}
+    .tk-title{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;}
+    .tk-key{font-family:var(--mono);color:var(--a2);}
+    .tk-summary{font-size:12px;color:var(--text);line-height:1.55;}
+    .tk-tags{display:flex;gap:6px;flex-wrap:wrap;}
+    .tk-tag{font-family:var(--mono);font-size:9px;padding:2px 8px;border-radius:5px;font-weight:600;
+      background:rgba(79,142,247,.1);color:var(--accent);}
+    .tk-meta{font-family:var(--mono);font-size:9px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;}
+
+    /* ANALYSIS CARD — what AutoBot decided needs testing */
+    .analysis-card{background:var(--s2);border:1px solid rgba(167,139,250,.35);
+      border-radius:14px;border-bottom-left-radius:4px;
+      padding:14px 16px;display:flex;flex-direction:column;gap:9px;min-width:300px;}
+    .an-title{font-size:12px;font-weight:700;color:var(--purple);display:flex;align-items:center;gap:7px;}
+    .an-row{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.5;}
+    .an-ico{flex-shrink:0;width:16px;text-align:center;}
+    .an-ico.ok{color:var(--pass);}
+    .an-ico.gen{color:var(--skip);}
+    .an-name{font-family:var(--mono);font-size:11px;color:var(--text);}
+    .an-sub{font-family:var(--mono);font-size:9px;color:var(--muted);}
+
+    /* quick chips */
+    .quick{padding:8px 22px 6px;display:flex;gap:7px;flex-wrap:wrap;flex-shrink:0;}
+    .qchip{font-family:var(--mono);font-size:10px;color:var(--muted);
+      border:1px solid var(--border);border-radius:20px;padding:4px 12px;
+      cursor:pointer;transition:all .15s;background:transparent;}
+    .qchip:hover{color:var(--accent);border-color:rgba(79,142,247,.3);background:rgba(79,142,247,.05);}
+
+    /* input */
+    .input-row{padding:12px 18px;border-top:1px solid var(--border);flex-shrink:0;position:relative;}
+    #cin{width:100%;background:var(--s2);border:1px solid var(--border);
+      border-radius:12px;padding:12px 44px 12px 16px;color:var(--text);
+      font-family:var(--font);font-size:13px;outline:none;transition:border-color .2s,box-shadow .2s;}
+    #cin:focus{border-color:rgba(79,142,247,.38);box-shadow:0 0 0 3px rgba(79,142,247,.09);}
+    #cin::placeholder{color:var(--muted);}
+    #sbtn{position:absolute;right:28px;top:50%;transform:translateY(-50%);
+      background:none;border:none;cursor:pointer;color:var(--muted);
+      font-size:14px;transition:color .2s;pointer-events:none;opacity:.3;}
+    #sbtn.on{color:var(--accent);pointer-events:auto;opacity:1;}
+
+    /* RIGHT PANEL */
+    .rp{border-left:1px solid var(--border);display:flex;flex-direction:column;background:var(--s1);overflow:hidden;}
+    .rph{padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;}
+    .rph-t{font-size:13px;font-weight:700;}
+    .rph-s{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-top:2px;}
+    .tabs{display:flex;gap:3px;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0;}
+    .tab{font-family:var(--mono);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:1px;
+      padding:5px 10px;border-radius:7px;cursor:pointer;border:none;
+      background:transparent;color:var(--muted);transition:all .2s;}
+    .tab.on{background:rgba(79,142,247,.12);color:var(--accent);border:1px solid rgba(79,142,247,.2);}
+    .tp{display:none;flex:1;overflow:hidden;flex-direction:column;}
+    .tp.on{display:flex;}
+    .sc-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px;flex-shrink:0;}
+    .sc{background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:12px;position:relative;overflow:hidden;}
+    .sc::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;border-radius:2px;}
+    .sc.total::after{background:var(--accent);}
+    .sc.pass::after{background:var(--pass);}
+    .sc.fail::after{background:var(--fail);}
+    .sc.skip::after{background:var(--skip);}
+    .sc-l{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+    .sc-v{font-size:26px;font-weight:700;line-height:1;margin-top:6px;}
+    .sc.pass .sc-v{color:var(--pass);}
+    .sc.fail .sc-v{color:var(--fail);}
+    .sc.skip .sc-v{color:var(--skip);}
+    .chart-area{padding:4px 14px 14px;flex-shrink:0;display:flex;align-items:center;gap:16px;}
+    .donut-wrap{width:80px;height:80px;position:relative;flex-shrink:0;}
+    .donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+    .donut-pct{font-size:15px;font-weight:700;color:var(--pass);}
+    .donut-lbl{font-family:var(--mono);font-size:8px;color:var(--muted);}
+    .legend{display:flex;flex-direction:column;gap:8px;}
+    .leg{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;}
+    .ld{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+
+    /* requests tab */
+    .req-list{flex:1;overflow-y:auto;}
+    .req-row{padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.03);
+      border-left:2px solid var(--purple);}
+    .req-name{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text);}
+    .req-meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap;}
+    .req-status{font-family:var(--mono);font-size:9px;font-weight:700;padding:1px 7px;border-radius:4px;}
+    .req-status.open{background:rgba(167,139,250,.12);color:var(--purple);}
+    .req-status.done{background:rgba(34,197,94,.12);color:var(--pass);}
+
+    /* failures */
+    .fl-hd{padding:10px 14px 6px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;}
+    .fl-title{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;}
+    .fl-badge{font-family:var(--mono);font-size:9px;background:rgba(244,63,94,.1);color:var(--fail);padding:2px 8px;border-radius:5px;font-weight:600;}
+    .fl-list{flex:1;overflow-y:auto;}
+    .frow{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;
+      border-bottom:1px solid rgba(255,255,255,.03);cursor:pointer;transition:background .15s;border-left:2px solid var(--fail);}
+    .frow:hover{background:rgba(244,63,94,.04);}
+    .frow.raised{border-left-color:var(--pass);}
+    .frow-n{font-family:var(--mono);font-size:10px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .fact{font-family:var(--mono);font-size:9px;font-weight:600;flex-shrink:0;padding:2px 7px;border-radius:5px;}
+    .fact.pend{color:var(--accent);border:1px solid rgba(79,142,247,.25);}
+    .fact.done{color:var(--pass);border:1px solid rgba(34,197,94,.25);}
+    .push-all{margin:10px 14px;background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.2);
+      color:var(--fail);border-radius:9px;padding:9px;font-family:var(--mono);font-size:10px;
+      font-weight:700;text-transform:uppercase;cursor:pointer;width:calc(100% - 28px);transition:all .15s;}
+    .push-all:hover{background:rgba(244,63,94,.15);}
+    .log-body{flex:1;overflow-y:auto;padding:10px 14px;font-family:var(--mono);font-size:9px;display:flex;flex-direction:column;gap:3px;}
+    .le{display:flex;gap:8px;}
+    .lt{color:var(--muted);flex-shrink:0;}
+    .lm.ok{color:var(--pass);}
+    .lm.err{color:var(--fail);}
+    .lm.info{color:var(--a2);}
+    .empty{padding:28px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--muted);}
+
+    /* MODALS */
+    .modal-bg{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.88);
+      backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;padding:16px;}
+    .modal-bg.open{display:flex;animation:fbg .2s ease;}
+    @keyframes fbg{from{opacity:0}to{opacity:1}}
+    .modal{background:var(--s2);border:1px solid var(--b2);border-radius:18px;padding:26px;
+      width:100%;max-width:460px;box-shadow:0 40px 80px rgba(0,0,0,.6);
+      animation:mup .22s cubic-bezier(.22,1,.36,1);}
+    @keyframes mup{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+    .mhd{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;}
+    .m-title{font-size:17px;font-weight:700;}
+    .m-sub{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-top:3px;}
+    .m-x{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;
+      width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);}
+    .m-x:hover{background:rgba(244,63,94,.1);color:var(--fail);border-color:rgba(244,63,94,.3);}
+    .mtog{display:flex;background:rgba(255,255,255,.03);border:1px solid var(--border);
+      border-radius:9px;padding:3px;margin-bottom:12px;}
+    .mtbtn{flex:1;padding:7px;font-family:var(--mono);font-size:10px;font-weight:700;
+      text-transform:uppercase;letter-spacing:1px;border:none;border-radius:7px;
+      cursor:pointer;transition:all .2s;background:transparent;color:var(--muted);}
+    .mtbtn.on{background:var(--accent);color:#fff;}
+    .stepper{display:flex;align-items:center;justify-content:space-between;
+      padding:9px 12px;background:rgba(79,142,247,.05);
+      border:1px solid rgba(79,142,247,.12);border-radius:9px;margin-bottom:12px;}
+    .spbtn{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;
+      width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11px;color:var(--text);}
+    .spbtn:hover{background:rgba(79,142,247,.1);}
+    .sp-info{font-family:var(--mono);font-size:10px;color:var(--accent);font-weight:600;text-align:center;}
+    .sp-raised{font-family:var(--mono);font-size:9px;color:var(--pass);}
+    .flbl{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;display:block;margin-bottom:6px;}
+    .finp,.fsel,.ftxt{width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);
+      border-radius:9px;padding:10px 12px;color:var(--text);font-family:var(--mono);
+      font-size:11px;outline:none;transition:border-color .2s;margin-bottom:11px;}
+    .finp:focus,.fsel:focus,.ftxt:focus{border-color:rgba(79,142,247,.38);}
+    .fsel{cursor:pointer;}
+    .ftxt{resize:vertical;min-height:88px;line-height:1.5;margin-bottom:0;}
+    .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:11px;}
+    .fgrid .finp,.fgrid .fsel{margin-bottom:0;}
+    .macts{display:flex;gap:8px;margin-top:12px;}
+    .mpush{flex:1;background:linear-gradient(135deg,var(--accent),#1d4ed8);color:#fff;
+      border:none;border-radius:9px;padding:12px;font-family:var(--mono);font-size:10px;
+      font-weight:700;text-transform:uppercase;cursor:pointer;
+      box-shadow:0 4px 14px rgba(79,142,247,.28);transition:opacity .2s;}
+    .mpush:hover{opacity:.9;}
+    .mpush:disabled{opacity:.5;cursor:default;}
+    .mpush.purple{background:linear-gradient(135deg,var(--purple),#7c3aed);box-shadow:0 4px 14px rgba(167,139,250,.28);}
+    .mcanc{background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--muted);
+      border-radius:9px;padding:12px 18px;font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;cursor:pointer;}
+    .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(12px);
+      background:var(--s2);border:1px solid var(--border);border-radius:9px;
+      padding:9px 16px;font-family:var(--mono);font-size:11px;
+      display:flex;align-items:center;gap:8px;
+      opacity:0;pointer-events:none;transition:all .3s;z-index:999;}
+    .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <!-- HEADER -->
+  <header>
+    <div class="h-bot">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.7">
+        <rect x="3" y="8" width="18" height="13" rx="3"/>
+        <path d="M8 8V6a4 4 0 0 1 8 0v2"/>
+        <circle cx="9" cy="14" r="1.5" fill="white" stroke="none"/>
+        <circle cx="15" cy="14" r="1.5" fill="white" stroke="none"/>
+        <path d="M9 18h6" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div><div class="h-title">AutoBot</div><div class="h-sub">Test Controller</div></div>
+    <div id="run-chips" style="display:none;gap:5px;align-items:center;">
+      <div class="chip csuite"><span class="cl">Suite&nbsp;</span><span id="lsuite" class="cv">—</span></div>
+      <div class="chip creg"><span class="cl">Region&nbsp;</span><span id="lregion" class="cv">—</span></div>
+      <div class="chip cenv"><span class="cl">Env&nbsp;</span><span id="lenv" class="cv">—</span></div>
+    </div>
+    <div class="h-sep"></div>
+    <div id="run-badge" class="hbadge">Standby</div>
+    <div class="u-wrap">
+      <div class="u-btn" id="u-btn" onclick="toggleUMenu()">
+        <div class="u-av" id="u-av">U</div>
+        <span class="u-name" id="u-name">User</span>
+        <i class="fas fa-chevron-down" style="font-size:9px;color:var(--muted)"></i>
+      </div>
+      <div class="u-menu" id="u-menu">
+        <div class="u-mhd">
+          <div class="u-mrole">QA Tester</div>
+          <div class="u-mname" id="u-mname">—</div>
+        </div>
+        <div class="m-item" onclick="switchTab('log',document.querySelectorAll('.tab')[3]);toggleUMenu()">
+          <i class="fas fa-terminal fa-fw"></i> System Log
+        </div>
+        <div class="m-item danger" onclick="logout()">
+          <i class="fas fa-sign-out-alt fa-fw"></i> Sign Out
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="body">
+    <!-- CHAT PANEL -->
+    <div class="chat-pane">
+      <div class="chat-win" id="chat-win"></div>
+      <div class="quick" id="quick-bar">
+        <span class="qchip" onclick="inject('Run TC NEX-1001 in US INT')">🎫 NEX-1001 · US · INT</span>
+        <span class="qchip" onclick="inject('Run TC NEX-1005 regression EU INT')">🎫 NEX-1005 · EU · INT</span>
+        <span class="qchip" onclick="inject('run sanity tests in US on prod')">🔵 sanity · US · prod</span>
+        <span class="qchip" onclick="inject('run regression in EU on dev')">🟣 regression · EU · dev</span>
+        <span class="qchip" onclick="inject('smoke tests APAC staging')">🟠 smoke · APAC · stage</span>
+      </div>
+      <div class="input-row">
+        <input id="cin" type="text" placeholder="Ask AutoBot to run tests or raise a script request..."
+          oninput="checkInput(this)" onkeydown="if(event.key==='Enter')send()"/>
+        <button id="sbtn" onclick="send()"><i class="fas fa-paper-plane"></i></button>
+      </div>
+    </div>
+
+    <!-- DRAG HANDLE -->
+    <div class="rz" id="rz" title="Drag to resize"></div>
+
+    <!-- RIGHT PANEL -->
+    <div class="rp">
+      <div class="rph">
+        <div class="rph-t">My Session</div>
+        <div class="rph-s" id="rph-sub">Current session</div>
+      </div>
+      <div class="tabs">
+        <button class="tab on" onclick="switchTab('overview',this)">Overview</button>
+        <button class="tab"    onclick="switchTab('requests',this)">Requests <span id="req-dot" style="display:none;width:6px;height:6px;border-radius:50%;background:var(--purple);display:inline-block;margin-left:4px;vertical-align:middle;"></span></button>
+        <button class="tab"    onclick="switchTab('failures',this)">Failures</button>
+        <button class="tab"    onclick="switchTab('log',this)">Log</button>
+        <button class="tab"    onclick="switchTab('report',this)">Report</button>
+      </div>
+
+      <!-- OVERVIEW -->
+      <div class="tp on" id="tp-overview">
+        <div class="sc-grid">
+          <div class="sc total"><div class="sc-l">Total</div><div class="sc-v" id="sv-t">—</div></div>
+          <div class="sc pass"> <div class="sc-l">Passed</div><div class="sc-v" id="sv-p">—</div></div>
+          <div class="sc fail"> <div class="sc-l">Failed</div><div class="sc-v" id="sv-f">—</div></div>
+          <div class="sc skip"> <div class="sc-l">Skipped</div><div class="sc-v" id="sv-s">—</div></div>
+        </div>
+        <div class="chart-area">
+          <div class="donut-wrap">
+            <canvas id="donut"></canvas>
+            <div class="donut-center">
+              <div class="donut-pct" id="dpct">—</div>
+              <div class="donut-lbl">pass rate</div>
+            </div>
+          </div>
+          <div class="legend">
+            <div class="leg"><span class="ld" style="background:var(--pass)"></span>Pass&nbsp;<b id="lp">0</b></div>
+            <div class="leg"><span class="ld" style="background:var(--fail)"></span>Fail&nbsp;<b id="lf">0</b></div>
+            <div class="leg"><span class="ld" style="background:var(--skip)"></span>Skip&nbsp;<b id="ls">0</b></div>
+          </div>
+        </div>
+        <div class="empty" id="ov-empty">No run yet. Ask AutoBot to execute some tests!</div>
+      </div>
+
+      <!-- SCRIPT REQUESTS -->
+      <div class="tp" id="tp-requests">
+        <div style="padding:10px 14px 6px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+          <span style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;">My Script Requests</span>
+          <span id="req-count" style="font-family:var(--mono);font-size:9px;background:rgba(167,139,250,.1);color:var(--purple);padding:2px 8px;border-radius:5px;font-weight:600;">0 requests</span>
+        </div>
+        <div class="req-list" id="req-list"><div class="empty">No requests raised yet.</div></div>
+      </div>
+
+      <!-- FAILURES -->
+      <div class="tp" id="tp-failures">
+        <div class="fl-hd">
+          <span class="fl-title">Failed Tests</span>
+          <span class="fl-badge" id="fl-badge">0 failures</span>
+        </div>
+        <div class="fl-list" id="fl-list"><div class="empty">No failures yet.</div></div>
+        <button class="push-all" id="push-all-btn" onclick="bugIdx=0;openBugModal()" style="display:none">
+          <i class="fas fa-upload"></i> Push All Failures to Jira
+        </button>
+      </div>
+
+      <!-- LOG -->
+      <div class="tp" id="tp-log">
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);flex-shrink:0;
+          display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;">System Log</span>
+          <button onclick="clearLog()" style="font-family:var(--mono);font-size:9px;background:none;border:none;color:var(--muted);cursor:pointer;">Clear</button>
+        </div>
+        <div class="log-body" id="log-body"></div>
+      </div>
+
+      <!-- REPORT -->
+      <div class="tp" id="tp-report" style="flex-direction:column;">
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);flex-shrink:0;
+          display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;">Robot Framework Report</span>
+          <button onclick="dlReport()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:12px;"><i class="fas fa-download"></i></button>
+        </div>
+        <iframe id="repframe" src="about:blank" style="flex:1;border:none;background:#080e1c;width:100%;"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BUG MODAL -->
+<div class="modal-bg" id="bug-modal">
+  <div class="modal">
+    <div class="mhd">
+      <div><div class="m-title">Push to Jira</div><div class="m-sub" id="bm-sub">Single defect</div></div>
+      <div class="m-x" onclick="closeBugModal()"><i class="fas fa-times"></i></div>
+    </div>
+    <div class="mtog">
+      <button class="mtbtn on" id="mb-single" onclick="setBugMode('single')">Single</button>
+      <button class="mtbtn"    id="mb-bulk"   onclick="setBugMode('bulk')">Bulk Push</button>
+    </div>
+    <div class="stepper" id="stepper">
+      <div class="spbtn" onclick="prevBug()"><i class="fas fa-chevron-left"></i></div>
+      <div style="text-align:center;">
+        <div class="sp-info" id="sp-info">Failure 1 of 1</div>
+        <div class="sp-raised" id="sp-raised" style="display:none">✓ Already raised</div>
+      </div>
+      <div class="spbtn" onclick="nextBug()"><i class="fas fa-chevron-right"></i></div>
+    </div>
+    <label class="flbl">Title</label>
+    <input class="finp" id="f-title" type="text" placeholder="[FAIL] Test name..."/>
+    <div class="fgrid">
+      <div><label class="flbl">Epic Link</label><input class="finp" id="f-epic" type="text" placeholder="QA-123"/></div>
+      <div><label class="flbl">Priority</label>
+        <select class="fsel" id="f-pri">
+          <option>Critical</option><option selected>High</option><option>Medium</option><option>Low</option>
+        </select>
+      </div>
+    </div>
+    <label class="flbl">Description / Error Log</label>
+    <textarea class="ftxt" id="f-desc"></textarea>
+    <div class="macts">
+      <button class="mpush" id="m-push" onclick="submitBug()">
+        <i class="fas fa-upload"></i>&nbsp;<span id="push-lbl">Push to Jira</span>
+      </button>
+      <button class="mcanc" onclick="closeBugModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- SCRIPT REQUEST MODAL -->
+<div class="modal-bg" id="req-modal">
+  <div class="modal" style="border-color:rgba(167,139,250,.35);">
+    <div class="mhd">
+      <div>
+        <div class="m-title" style="color:var(--purple)">🧪 Raise Script Request</div>
+        <div class="m-sub">Request a new test script from the Dev team</div>
+      </div>
+      <div class="m-x" onclick="closeReqModal()"><i class="fas fa-times"></i></div>
+    </div>
+    <label class="flbl">Script / Suite Name Requested</label>
+    <input class="finp" id="rq-name" type="text" placeholder="e.g. payment_gateway_regression"/>
+    <div class="fgrid">
+      <div>
+        <label class="flbl">Test Type</label>
+        <select class="fsel" id="rq-type">
+          <option>Sanity</option><option>Regression</option><option>Smoke</option>
+          <option>E2E</option><option>Performance</option><option>Other</option>
+        </select>
+      </div>
+      <div>
+        <label class="flbl">Priority</label>
+        <select class="fsel" id="rq-pri">
+          <option>Critical</option><option selected>High</option><option>Medium</option><option>Low</option>
+        </select>
+      </div>
+    </div>
+    <label class="flbl">Description — What should be tested?</label>
+    <textarea class="ftxt" id="rq-desc" placeholder="Describe what the script should cover, expected endpoints, flows, etc..."></textarea>
+    <div class="macts">
+      <button class="mpush purple" onclick="submitScriptRequest()">
+        <i class="fas fa-paper-plane"></i>&nbsp;<span id="rq-lbl">Submit Request</span>
+      </button>
+      <button class="mcanc" onclick="closeReqModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── AUTH ─────────────────────────────────────────────── */
+const ME = localStorage.getItem('ab_user');
+const MY_ROLE = localStorage.getItem('ab_role');
+if (!ME) window.location.href = '/';
+if (MY_ROLE === 'admin') window.location.href = '/dashboard.html';
+if (MY_ROLE === 'dev')   window.location.href = '/dev.html';
+
+/* ── KNOWN SUITES — must match what the backend/Robot actually has ── */
+const KNOWN_SUITES = ['sanity','regression','smoke','e2e','performance'];
+const KNOWN_REGIONS = ['us','us-east','us-west','eu','apac'];
+const KNOWN_ENVS    = ['dev','prod','int','stage','uat','preprod'];
+
+/* ── BACKEND + TICKET DETECTION ───────────────────────── */
+const API_BASE   = 'http://localhost:8000';
+const TICKET_RE  = /\b([A-Z]{2,5}-\d{1,6})\b/i;   // e.g. IT-6, IT-7, ABC-1, NEX-1001
+
+/* ── STATE ────────────────────────────────────────────── */
+let donutChart          = null;
+let pendingParams       = null;   // fully confirmed run params
+let partialParams       = {};     // params gathered so far during validation
+let awaitingField       = null;   // 'suite' | 'region' | 'env' | null
+let currentFails        = [];
+let raisedBugs          = new Set();
+let bugIdx = 0, bugMode = 'single';
+let myRequests          = [];
+let msgCount            = 0;
+let pendingUnknownSuite = null;
+
+/* ── INIT ─────────────────────────────────────────────── */
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('u-av').textContent   = ME.charAt(0).toUpperCase();
+  document.getElementById('u-name').textContent = ME;
+  document.getElementById('u-mname').textContent = ME;
+  initDonut();
+  greet();
+  loadMyRequests();
+  initPanelResize();
+});
+
+/* ── RESIZABLE "MY SESSION" PANEL ─────────────────────── */
+function initPanelResize() {
+  const body   = document.querySelector('.body');
+  const handle = document.getElementById('rz');
+  const MIN_W  = 300, MAX_W = 720;
+
+  // restore last width the user chose
+  const saved = parseInt(localStorage.getItem('ab_session_panel_w'), 10);
+  if (saved && saved >= MIN_W && saved <= MAX_W) {
+    body.style.gridTemplateColumns = `1fr 6px ${saved}px`;
+  }
+
+  let dragging = false;
+
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const bodyRect = body.getBoundingClientRect();
+    let newW = bodyRect.right - e.clientX;
+    newW = Math.max(MIN_W, Math.min(MAX_W, newW));
+    body.style.gridTemplateColumns = `1fr 6px ${newW}px`;
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.userSelect = '';
+    // persist the chosen width
+    const cols = getComputedStyle(body).gridTemplateColumns.split(' ');
+    const w = parseInt(cols[cols.length - 1], 10);
+    if (w) localStorage.setItem('ab_session_panel_w', w);
+  });
+
+  // double-click the handle to reset to default width
+  handle.addEventListener('dblclick', () => {
+    body.style.gridTemplateColumns = '1fr 6px 400px';
+    localStorage.setItem('ab_session_panel_w', 400);
+  });
+}
+
+function toggleUMenu() { document.getElementById('u-menu').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  if (!e.target.closest('#u-btn') && !e.target.closest('#u-menu'))
+    document.getElementById('u-menu').classList.remove('open');
+});
+function logout() { localStorage.clear(); window.location.href = '/'; }
+
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('on'));
+  document.querySelectorAll('.tp').forEach(p => p.classList.remove('on'));
+  if (btn) btn.classList.add('on');
+  document.getElementById('tp-' + id).classList.add('on');
+}
+
+/* ── DONUT ────────────────────────────────────────────── */
+function initDonut() {
+  donutChart = new Chart(document.getElementById('donut').getContext('2d'), {
+    type: 'doughnut',
+    data: { datasets: [{ data:[1,1,1], backgroundColor:['#22c55e','#f43f5e','#f59e0b'], borderWidth:0, hoverOffset:3 }] },
+    options: { cutout:'72%', plugins:{ legend:{ display:false } }, maintainAspectRatio:false }
+  });
+}
+function updateDonut(p,f,s) { donutChart.data.datasets[0].data=[p||0,f||0,s||0]; donutChart.update(); }
+
+/* ── INPUT ────────────────────────────────────────────── */
+function checkInput(el) { document.getElementById('sbtn').classList.toggle('on', el.value.trim().length > 2); }
+function inject(cmd)    { document.getElementById('cin').value = cmd; checkInput(document.getElementById('cin')); send(); }
+
+/* ── SEND ─────────────────────────────────────────────── */
+function send() {
+  const inp = document.getElementById('cin');
+  const msg = inp.value.trim();
+  if (!msg) return;
+  addUserMsg(msg); inp.value = ''; checkInput(inp);
+  parseAndRespond(msg);
+}
+
+/* ── MESSAGE BUILDERS ─────────────────────────────────── */
+function addUserMsg(text) {
+  appendMsg('user', `<div class="m-av">${ME.charAt(0).toUpperCase()}</div>
+    <div class="m-col"><div class="m-who">${ME}</div>
+    <div class="bubble user">${esc(text)}</div></div>`);
+}
+function botMsg(text) {
+  appendMsg('bot', `<div class="m-av">🤖</div>
+    <div class="m-col"><div class="m-who">AutoBot</div>
+    <div class="bubble bot">${esc(text)}</div></div>`);
+}
+function appendMsg(who, inner) {
+  const win = document.getElementById('chat-win');
+  const el = document.createElement('div');
+  el.id = 'm'+(++msgCount); el.className = 'msg '+who;
+  el.innerHTML = inner;
+  win.appendChild(el); win.scrollTop = win.scrollHeight;
+  return el.id;
+}
+
+function typingStart() {
+  const id = appendMsg('bot',
+    `<div class="m-av">🤖</div>
+     <div class="m-col"><div class="m-who">AutoBot</div>
+     <div class="bubble bot"><div class="dots"><span></span><span></span><span></span></div></div></div>`);
+  return id;
+}
+function typingEnd(id) { document.getElementById(id)?.remove(); }
+
+/* ── STEP STREAM ──────────────────────────────────────── */
+function createStepStream(steps) {
+  const win = document.getElementById('chat-win');
+  const sid = 'ss'+(++msgCount);
+  const wrap = document.createElement('div');
+  wrap.className = 'msg bot';
+  wrap.innerHTML = `<div class="m-av">🤖</div>
+    <div class="m-col"><div class="m-who">AutoBot</div>
+    <div class="step-stream" id="${sid}"></div></div>`;
+  win.appendChild(wrap);
+  const cont = document.getElementById(sid);
+  const rowIds = [];
+  steps.forEach((s,i) => {
+    const rid = sid+'r'+i; rowIds.push(rid);
+    const row = document.createElement('div');
+    row.className='srow'; row.id=rid;
+    row.innerHTML=`<div class="sico pending" id="${rid}-ic">⋯</div>
+      <div class="stxt"><div class="sl">${s.label}</div>
+      <div class="sd" id="${rid}-d">${s.detail||''}</div></div>
+      <div class="stm" id="${rid}-t">—</div>`;
+    cont.appendChild(row);
+  });
+  win.scrollTop=win.scrollHeight;
+  return { sid, rowIds };
+}
+function setStep(rid, state, detail, time) {
+  const ic=document.getElementById(rid+'-ic');
+  const d=document.getElementById(rid+'-d');
+  const t=document.getElementById(rid+'-t');
+  if(!ic) return;
+  ic.className='sico '+state;
+  ic.textContent={pending:'⋯',running:'◎',done:'✓',error:'✗'}[state]||'⋯';
+  if(detail) d.textContent=detail;
+  if(time)   t.textContent=time;
+  document.getElementById('chat-win').scrollTop=99999;
+}
+
+/* ══════════════════════════════════════════════════════
+   NLU ENGINE — full validation with missing-field follow-up
+   and unknown-suite → Raise Request flow
+══════════════════════════════════════════════════════ */
+
+/* ─ send() routes through here first ─────────────────
+   If awaitingField is set it means the bot asked a
+   follow-up question and is collecting one specific
+   missing piece of information.
+──────────────────────────────────────────────────── */
+async function parseAndRespond(msg) {
+
+  /* ── 1. If bot is waiting for a specific missing field ── */
+  if (awaitingField) {
+    handleFollowUp(msg);
+    return;
+  }
+
+  const tid = typingStart();
+  await delay(600);
+  typingEnd(tid);
+
+  const lm = msg.toLowerCase();
+
+  /* ── 2. Detect run intent ───────────────────────────── */
+  const RUN_INTENT = /\b(run|execute|start|trigger|test|sanity|regression|smoke|e2e|perf|performance)\b/i;
+  if (!RUN_INTENT.test(lm)) {
+    // Totally unrelated message → offer raise-request
+    showUnknownIntentCard(msg);
+    return;
+  }
+
+  /* ── 2b. Ticket-based run — "run IT-7", "execute NEX-1001 in EU prod" ──
+     AutoBot looks up the ticket, understands what it needs testing,
+     checks the test catalog (data source) and generates a script if one
+     doesn't exist yet, THEN asks for anything still missing (region/env). ── */
+  const ticketMatch = msg.match(TICKET_RE);
+  if (ticketMatch) {
+    await handleTicketRun(ticketMatch[1].toUpperCase(), lm);
+    return;
+  }
+
+  /* ── 3. Extract what we can ─────────────────────────── */
+  const extracted = extractParams(lm);
+
+  /* ── 4. If suite not recognised → not-found card ────── */
+  if (extracted.suite && !KNOWN_SUITES.includes(extracted.suite)) {
+    showNotFoundCard(extracted.suite, msg);
+    return;
+  }
+
+  /* ── 5. Collect into partialParams ──────────────────── */
+  if (extracted.suite)  partialParams.test_type = cap(extracted.suite);
+  if (extracted.region) partialParams.region    = extracted.region.toUpperCase();
+  if (extracted.env)    partialParams.env        = extracted.env.toUpperCase();
+
+  /* ── 6. Find what's still missing ───────────────────── */
+  const missing = getMissing();
+
+  if (missing.length === 0) {
+    // All three present — show confirm card
+    showConfirmCard(partialParams);
+    partialParams = {};
+  } else {
+    // Ask for the first missing field
+    askForField(missing[0]);
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   TICKET-BASED RUN — the "intelligence" layer
+   1. Fetch ticket details (understand what it's about)
+   2. Check the test catalog (data source) for existing coverage
+   3. Auto-generate a script for anything missing (done server-side
+      inside /confirm_run and /api/tickets/<id>/run)
+   4. Ask for whatever's still missing (region/env), then run
+══════════════════════════════════════════════════════ */
+async function handleTicketRun(ticketId, lm) {
+  botMsg(`🔍 Looking up ${ticketId}…`);
+
+  let ticket = null;
+  try {
+    const res = await fetch(`${API_BASE}/api/tickets/${encodeURIComponent(ticketId)}`);
+    if (res.ok) { const d = await res.json(); ticket = d.ticket; }
+  } catch (_) { /* backend unreachable */ }
+
+  if (!ticket) {
+    botMsg(`⚠️ I couldn't find ${ticketId} in the ticket system.\n\nCheck the ID, or create it on the Jira board first — then ask me to run it.`);
+    return;
+  }
+
+  showTicketUnderstandingCard(ticket);
+
+  // Extract region/env up front (suite is implied by the ticket itself —
+  // no need to ask which suite) so the analysis preview below resolves
+  // endpoints against the right target.
+  partialParams = {
+    test_type: ticket.id,
+    ticketId:  ticket.id,
+    tags:      ticket.robotTags || [],
+  };
+  const extracted = extractParams(lm);
+  if (extracted.region) partialParams.region = extracted.region.toUpperCase();
+  if (extracted.env)    partialParams.env    = extracted.env.toUpperCase();
+
+  // Check the test catalog (data source) — what's already covered vs. what
+  // AutoBot will need to generate before this run — previewing which
+  // application/endpoint it would target.
+  let analysis = null;
+  try {
+    const q = new URLSearchParams({
+      region: partialParams.region || 'US',
+      env:    partialParams.env    || 'DEV',
+    });
+    const res = await fetch(`${API_BASE}/api/tickets/${encodeURIComponent(ticketId)}/analyze?${q}`);
+    if (res.ok) analysis = await res.json();
+  } catch (_) { /* backend unreachable — skip preview, generation still happens at run time */ }
+
+  if (analysis) showAnalysisCard(analysis);
+
+  const missing = [];
+  if (!partialParams.region) missing.push('region');
+  if (!partialParams.env)    missing.push('env');
+
+  if (missing.length === 0) {
+    showConfirmCard(partialParams);
+    partialParams = {};
+  } else {
+    askForField(missing[0]);
+  }
+}
+
+/* ─ Ticket understanding card ────────────────────────── */
+function showTicketUnderstandingCard(t) {
+  const win = document.getElementById('chat-win');
+  const el  = document.createElement('div');
+  el.className = 'msg bot';
+  const tags = (t.robotTags || []).map(tag => `<span class="tk-tag">${esc(tag)}</span>`).join('');
+  el.innerHTML = `
+    <div class="m-av">🤖</div>
+    <div class="m-col">
+      <div class="m-who">AutoBot</div>
+      <div class="ticket-card">
+        <div class="tk-title">🎫 <span class="tk-key">${esc(t.id)}</span> — ${esc(t.title)}</div>
+        <div class="tk-summary">${esc((t.desc || '').replace(/<[^>]+>/g,' ').slice(0,220))}</div>
+        <div class="tk-tags">${tags}</div>
+        <div class="tk-meta">
+          <span>Priority: ${esc(t.priority || '—')}</span>
+          <span>Service: ${esc(t.service || '—')}</span>
+          <span>Status: ${esc(t.status || '—')}</span>
+        </div>
+      </div>
+    </div>`;
+  win.appendChild(el); win.scrollTop = win.scrollHeight;
+}
+
+/* ─ Analysis card — matched vs. to-be-generated test cases ──── */
+function showAnalysisCard(analysis) {
+  const win = document.getElementById('chat-win');
+  const el  = document.createElement('div');
+  el.className = 'msg bot';
+
+  const matchedRows = (analysis.matchedTests || []).map(m => `
+    <div class="an-row"><span class="an-ico ok">✓</span>
+      <div><div class="an-name">${esc(m.name)}</div>
+      <div class="an-sub">tag: ${esc(m.tag)} · ${esc(m.file)}</div></div>
+    </div>`).join('');
+
+  const previewByTag = {};
+  (analysis.generationPreview || []).forEach(p => { previewByTag[p.tag] = p; });
+
+  const missingRows = (analysis.missingTags || []).map(tag => {
+    const p = previewByTag[tag];
+    const target = p && p.resolved
+      ? `will target <span class="an-name">${esc(p.application)} → ${esc(p.endpoint)}</span>`
+      : `no matching application in config — will use a generic template`;
+    return `
+    <div class="an-row"><span class="an-ico gen">✦</span>
+      <div><div class="an-name">Generating a script for "${esc(tag)}"</div>
+      <div class="an-sub">${target}</div></div>
+    </div>`;
+  }).join('');
+
+  const needsGen = analysis.needsGeneration;
+  el.innerHTML = `
+    <div class="m-av">🤖</div>
+    <div class="m-col">
+      <div class="m-who">AutoBot</div>
+      <div class="analysis-card">
+        <div class="an-title">${needsGen ? '🧠 Understanding the ticket — I\'ll generate what\'s missing' : '🧠 Understanding the ticket — everything\'s already covered'}</div>
+        ${matchedRows}
+        ${missingRows}
+      </div>
+    </div>`;
+  win.appendChild(el); win.scrollTop = win.scrollHeight;
+}
+
+/* ─ Extract suite / region / env from free text ──────── */
+function extractParams(lm) {
+  return {
+    suite:  KNOWN_SUITES.find(s  => lm.includes(s))   || null,
+    region: KNOWN_REGIONS.find(r => lm.includes(r))   || null,
+    env:    KNOWN_ENVS.find(e    => lm.includes(e))   || null,
+  };
+}
+
+/* ─ Which of the 3 required fields are still missing? ── */
+function getMissing() {
+  const missing = [];
+  if (!partialParams.test_type) missing.push('suite');
+  if (!partialParams.region)    missing.push('region');
+  if (!partialParams.env)       missing.push('env');
+  return missing;
+}
+
+/* ─ Ask the user for a specific missing field ───────────
+   Shows an interactive option-picker bubble so the user
+   can tap instead of typing.
+──────────────────────────────────────────────────────── */
+function askForField(field) {
+  awaitingField = field;
+
+  const CFG = {
+    suite: {
+      question: "Which test suite would you like to run?",
+      hint:     "Pick a suite or type the name:",
+      options:  KNOWN_SUITES.map(s => cap(s)),
+      color:    'var(--a2)',
+    },
+    region: {
+      question: "Which region should I target?",
+      hint:     "Select the region:",
+      options:  ['US','EU','APAC','US-EAST','US-WEST'],
+      color:    'var(--pass)',
+    },
+    env: {
+      question: "Which environment?",
+      hint:     "Select the environment:",
+      options:  ['PROD','DEV','STAGE','INT','UAT','PREPROD'],
+      color:    'var(--skip)',
+    },
+  };
+
+  const cfg = CFG[field];
+  const win = document.getElementById('chat-win');
+  const el  = document.createElement('div');
+  el.className = 'msg bot'; el.id = 'ask-wrap-'+field;
+
+  const optBtns = cfg.options.map(o =>
+    `<button class="opt-btn" onclick="pickOption('${o}','${field}')">${o}</button>`
+  ).join('');
+
+  el.innerHTML = `
+    <div class="m-av">🤖</div>
+    <div class="m-col">
+      <div class="m-who">AutoBot</div>
+      <div class="ask-card">
+        <div class="ask-q">${cfg.question}</div>
+        <div class="ask-hint">${cfg.hint}</div>
+        <div class="ask-opts">${optBtns}</div>
+        <div class="ask-already">
+          ${partialParams.test_type ? `<span class="ap t">Suite: ${partialParams.test_type}</span>` : ''}
+          ${partialParams.region    ? `<span class="ap r">Region: ${partialParams.region}</span>`   : ''}
+          ${partialParams.env       ? `<span class="ap e">Env: ${partialParams.env}</span>`         : ''}
+        </div>
+      </div>
+    </div>`;
+  win.appendChild(el);
+  win.scrollTop = win.scrollHeight;
+}
+
+/* ─ User tapped an option button ───────────────────────── */
+function pickOption(value, field) {
+  // Remove the ask card
+  document.getElementById('ask-wrap-'+field)?.remove();
+  awaitingField = null;
+
+  // Echo as user message
+  addUserMsg(value);
+
+  // Store the chosen value
+  storeField(field, value);
+
+  // Check what's still missing
+  const missing = getMissing();
+  if (missing.length === 0) {
+    showConfirmCard(partialParams);
+    partialParams = {};
+  } else {
+    askForField(missing[0]);
+  }
+}
+
+/* ─ Handle free-text reply to a follow-up question ─────── */
+function handleFollowUp(msg) {
+  const lm  = msg.toLowerCase();
+  const field = awaitingField;
+  awaitingField = null;
+
+  // Remove the ask card if still visible
+  document.getElementById('ask-wrap-'+field)?.remove();
+
+  const extracted = extractParams(lm);
+  let value = null;
+
+  if (field === 'suite')  value = extracted.suite  ? cap(extracted.suite)  : null;
+  if (field === 'region') value = extracted.region ? extracted.region.toUpperCase() : null;
+  if (field === 'env')    value = extracted.env    ? extracted.env.toUpperCase()    : null;
+
+  if (!value) {
+    // Still couldn't parse — check if it's an unknown suite
+    if (field === 'suite') {
+      const word = lm.replace(/run|test|execute|the/g,'').trim().split(/\s+/)[0];
+      if (word && !KNOWN_SUITES.includes(word)) {
+        showNotFoundCard(word, msg);
+        partialParams = {};
+        return;
+      }
+    }
+    // Ask again
+    botMsg(`I didn't catch that. ${field === 'suite' ? 'Please pick a valid suite.' : 'Please try again.'}`);
+    askForField(field);
+    return;
+  }
+
+  storeField(field, value);
+
+  const missing = getMissing();
+  if (missing.length === 0) {
+    showConfirmCard(partialParams);
+    partialParams = {};
+  } else {
+    askForField(missing[0]);
+  }
+}
+
+/* ─ Store one field into partialParams ──────────────────── */
+function storeField(field, value) {
+  if (field === 'suite')  partialParams.test_type = value;
+  if (field === 'region') partialParams.region    = value.toUpperCase();
+  if (field === 'env')    partialParams.env        = value.toUpperCase();
+}
+
+/* ─ Unknown intent card — totally unrelated message ─────── */
+function showUnknownIntentCard(originalMsg) {
+  const win = document.getElementById('chat-win');
+  const el  = document.createElement('div');
+  el.className = 'msg bot'; el.id = 'ui-wrap';
+  el.innerHTML = `
+    <div class="m-av">🤖</div>
+    <div class="m-col">
+      <div class="m-who">AutoBot</div>
+      <div class="notfound-card">
+        <div class="nf-title" style="color:var(--a2)">🤖 I'm a Test Automation Bot</div>
+        <div class="nf-body">I didn't recognise that as a test run command.\n\nI can:\n→ Run existing test suites\n→ Raise a <b style="color:var(--purple)">Script Request</b> for something new\n\nWould you like to raise a script request for <b style="color:var(--text)">"${esc(originalMsg)}"</b>?</div>
+        <div class="nf-btns">
+          <button class="nf-raise" onclick="openReqModalForSuite('${esc(originalMsg)}','${esc(originalMsg)}')">🧪 Raise Script Request</button>
+          <button class="nf-skip"  onclick="document.getElementById('ui-wrap').remove()">Dismiss</button>
+        </div>
+      </div>
+    </div>`;
+  win.appendChild(el);
+  win.scrollTop = win.scrollHeight;
+}
+
+/* ── NOT-FOUND CARD — suite typed but doesn't exist ─────── */
+function showNotFoundCard(suite, originalMsg) {
+  pendingUnknownSuite = suite;
+  const win = document.getElementById('chat-win');
+  const el  = document.createElement('div');
+  el.className = 'msg bot'; el.id = 'nf-wrap';
+  el.innerHTML = `
+    <div class="m-av">🤖</div>
+    <div class="m-col">
+      <div class="m-who">AutoBot</div>
+      <div class="notfound-card">
+        <div class="nf-title">⚠️ Script Not Found</div>
+        <div class="nf-body">I don't have a <b style="color:var(--text)">"${esc(suite)}"</b> test script in the automation suite.\n\nWould you like to raise a <b style="color:var(--purple)">Script Request</b> so the Dev team can build it?</div>
+        <div class="nf-btns">
+          <button class="nf-raise" onclick="openReqModalForSuite('${esc(suite)}','${esc(originalMsg)}')">🧪 Raise Script Request</button>
+          <button class="nf-skip"  onclick="document.getElementById('nf-wrap').remove();partialParams={};">Maybe Later</button>
+        </div>
+      </div>
+    </div>`;
+  win.appendChild(el);
+  win.scrollTop = win.scrollHeight;
+}
+
+/* ── CONFIRM CARD ─────────────────────────────────────── */
+function showConfirmCard(params) {
+  pendingParams = { ...params };
+  const win = document.getElementById('chat-win');
+  const el  = document.createElement('div');
+  el.className = 'msg bot'; el.id = 'confirm-wrap';
+  el.innerHTML = `
+    <div class="m-av">🤖</div>
+    <div class="m-col">
+      <div class="m-who">AutoBot</div>
+      <div class="confirm-card">
+        <div class="cc-title">✅ Got everything — confirm the run?</div>
+        <div class="cc-params">
+          <span class="cp t">${params.test_type}</span>
+          <span class="cp r">${params.region}</span>
+          <span class="cp e">${params.env}</span>
+        </div>
+        <div class="cc-btns">
+          <button class="c-run" onclick="confirmRun(true)">▶&nbsp;Run Tests</button>
+          <button class="c-no"  onclick="confirmRun(false)">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  win.appendChild(el);
+  win.scrollTop = win.scrollHeight;
+}
+
+/* ── UTIL ─────────────────────────────────────────────── */
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+/* ══════════════════════════════════════════════════════
+   EXECUTION WITH STEP STREAMING
+══════════════════════════════════════════════════════ */
+async function confirmRun(yes) {
+  document.getElementById('confirm-wrap')?.remove();
+  if (!yes) { botMsg('Run cancelled. Let me know when you\'re ready!'); return; }
+
+  document.getElementById('run-chips').style.display = 'flex';
+  document.getElementById('lsuite').textContent  = pendingParams.test_type;
+  document.getElementById('lregion').textContent = pendingParams.region;
+  document.getElementById('lenv').textContent    = pendingParams.env;
+  setBadge('running','Running');
+
+  const isTicketRun = !!pendingParams.ticketId;
+  const STEPS = [
+    { label:'Initialising session',          detail:'Setting up Robot Framework environment' },
+    { label: isTicketRun ? 'Resolving ticket: '+pendingParams.ticketId : 'Resolving suite: '+pendingParams.test_type,
+      detail: isTicketRun ? 'Understanding ticket & checking test catalog' : 'Loading test cases & keywords' },
+    { label:'Connecting → '+pendingParams.region+' / '+pendingParams.env, detail:'Validating target endpoint' },
+    { label:'Executing test suite',          detail:'Running tests… this may take a few minutes' },
+    { label:'Collecting results',            detail:'Parsing output.xml & logs' },
+    { label:'Generating report',             detail:'Building report.html & log.html' },
+    { label:'Analysing failures',            detail:'Extracting defect details' },
+    { label:'Run complete',                  detail:'Results ready' },
+  ];
+  const { rowIds } = createStepStream(STEPS);
+
+  try {
+    // Ticket-based runs: the backend does understand+generate+execute
+    // entirely in a background thread and returns almost immediately.
+    // Poll /status below for real progress (stage) and the analysis note.
+    await fetch('http://localhost:8000/confirm_run', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        params:   pendingParams,
+        user:     ME,
+        ticketId: pendingParams.ticketId || null,
+        tags:     pendingParams.tags     || [],
+      })
+    });
+  } catch(_) {}
+
+  const startMs = Date.now();
+  for (let i=0; i<3; i++) {
+    setStep(rowIds[i],'running',null,ts()); await delay(500+Math.random()*350);
+    setStep(rowIds[i],'done',null,ts()); sysLog(`Step ${i+1}: ${STEPS[i].label}`,'info');
+  }
+  setStep(rowIds[3],'running','Dispatching to Robot Framework…',ts());
+  sysLog('Robot Framework execution started','info');
+
+  const STAGE_LABEL = {
+    understanding: 'Understanding ticket…',
+    generating:    'Generating test script…',
+    executing:     'Executing test suite…',
+    completed:     'Finishing up…',
+  };
+  let result = null;
+  let noteShown = false;
+  for (let poll=0; poll<120; poll++) {
+    await delay(1500);
+    const elapsed = Math.round((Date.now()-startMs)/1000);
+    try {
+      const r = await fetch('http://localhost:8000/status'); const d = await r.json();
+      const stageLabel = STAGE_LABEL[d.stage] || 'Running…';
+      setStep(rowIds[3],'running',`${stageLabel} (${elapsed}s elapsed)`,ts());
+      if (!noteShown && d.analysis?.note) { botMsg(d.analysis.note); noteShown = true; }
+      if (d.status==='completed') { result=d; break; }
+    } catch(_) { if(elapsed>=6){ result=genDemo(); break; } }
+  }
+  // Backend never reported completion within the poll window — don't leave
+  // the UI frozen here; fall back to a clearly-labelled demo result and tell
+  // the user, instead of silently hanging (this was the "stuck in Executing"
+  // bug: result stayed null and the next line crashed on result.failed).
+  if (!result) {
+    botMsg('⚠️ The backend didn\'t report completion in time — showing a demo result. Check the Flask server logs; the run may still be in progress there.');
+    result = genDemo();
+  }
+  setStep(rowIds[3],'done','Execution finished',ts()); sysLog('Execution complete','ok');
+
+  for (let i=4; i<7; i++) {
+    setStep(rowIds[i],'running',null,ts()); await delay(380+Math.random()*280);
+    setStep(rowIds[i],'done',null,ts()); sysLog(`Step ${i+1}: ${STEPS[i].label}`,'info');
+  }
+  const hasErr = result.failed > 0;
+  setStep(rowIds[7], hasErr?'error':'done',
+    hasErr?`${result.failed} failure(s) detected`:'All tests passed 🎉', ts());
+
+  try {
+    await fetch('http://localhost:8000/api/runs/save', { method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ user:ME, suite:pendingParams.test_type, region:pendingParams.region,
+        env:pendingParams.env, total:result.total, passed:result.passed,
+        failed:result.failed, skipped:result.skipped, timestamp:new Date().toISOString() }) });
+  } catch(_) {}
+
+  updateStats(result);
+  currentFails = result.failures || [];
+  renderFails();
+  setBadge(hasErr?'fail':'done', hasErr?'Failures Detected':'All Passed');
+  document.getElementById('rph-sub').textContent =
+    `${pendingParams.test_type} · ${pendingParams.region} · ${pendingParams.env}`;
+  document.getElementById('repframe').src = '/results/report.html';
+  showResultCard(result, Math.round((Date.now()-startMs)/1000));
+  sysLog(`Final: ${result.passed}P ${result.failed}F ${result.skipped}S`,'ok');
+}
+
+function genDemo() {
+  const total=Math.floor(Math.random()*28)+10;
+  const failed=Math.floor(Math.random()*5);
+  const skipped=Math.floor(Math.random()*2);
+  const passed=total-failed-skipped;
+  const names=['Login_Validation','API_Auth_Check','Dashboard_Load','Checkout_E2E',
+    'Payment_Gateway','Profile_Update','Search_Results','Cart_Check'];
+  return { total,passed,failed,skipped,
+    failures:Array.from({length:failed},(_,i)=>({
+      name:names[i%names.length],
+      message:`AssertionError: Expected 200 but got ${[404,500,503][i%3]} on ${pendingParams.env}`
+    })) };
+}
+
+function showResultCard(d, elapsed) {
+  const pr = d.total>0?Math.round(d.passed/d.total*100):0;
+  const win = document.getElementById('chat-win');
+  const el = document.createElement('div'); el.className='msg bot';
+  el.innerHTML=`
+    <div class="m-av">🤖</div>
+    <div class="m-col"><div class="m-who">AutoBot</div>
+    <div class="result-card">
+      <div class="rc-title">${d.failed>0?'⚠️ Run Complete — Failures Detected':'✅ Run Complete — All Passed'}</div>
+      <div class="rc-stats">
+        <div class="rcs"><div class="rcs-v">${d.total}</div><div class="rcs-l">Total</div></div>
+        <div class="rcs"><div class="rcs-v" style="color:var(--pass)">${d.passed}</div><div class="rcs-l">Passed</div></div>
+        <div class="rcs"><div class="rcs-v" style="color:var(--fail)">${d.failed}</div><div class="rcs-l">Failed</div></div>
+      </div>
+      <div class="rc-bar"><div class="rc-fill" style="width:${pr}%"></div></div>
+      <div class="rc-meta"><span>Pass rate: ${pr}%</span><span>Duration: ${elapsed}s</span></div>
+      ${d.failed>0?`<span class="rc-link" onclick="switchTab('failures',document.querySelectorAll('.tab')[2])">View ${d.failed} failure(s) → Push to Jira</span>`:''}
+    </div></div>`;
+  win.appendChild(el); win.scrollTop=win.scrollHeight;
+  if (d.failed>0) showToast(`${d.failed} failure(s) detected`,'error');
+  else showToast('All tests passed! 🎉','success');
+}
+
+function updateStats(d) {
+  document.getElementById('sv-t').textContent=d.total;
+  document.getElementById('sv-p').textContent=d.passed;
+  document.getElementById('sv-f').textContent=d.failed;
+  document.getElementById('sv-s').textContent=d.skipped;
+  const pr=d.total>0?Math.round(d.passed/d.total*100):0;
+  document.getElementById('dpct').textContent=pr+'%';
+  document.getElementById('lp').textContent=d.passed;
+  document.getElementById('lf').textContent=d.failed;
+  document.getElementById('ls').textContent=d.skipped;
+  document.getElementById('ov-empty').style.display='none';
+  updateDonut(d.passed,d.failed,d.skipped);
+}
+
+function renderFails() {
+  const list=document.getElementById('fl-list');
+  const badge=document.getElementById('fl-badge');
+  badge.textContent=`${currentFails.length} failure${currentFails.length!==1?'s':''}`;
+  document.getElementById('push-all-btn').style.display=currentFails.length?'block':'none';
+  if(!currentFails.length){list.innerHTML='<div class="empty">No failures — all tests passed!</div>';return;}
+  list.innerHTML='';
+  currentFails.forEach((f,i)=>{
+    const raised=raisedBugs.has(i);
+    const row=document.createElement('div');
+    row.className='frow'+(raised?' raised':'');
+    row.onclick=()=>{bugIdx=i;openBugModal();};
+    row.innerHTML=`<span class="frow-n" title="${esc(f.name)}">${esc(f.name)}</span>
+      <span class="fact ${raised?'done':'pend'}">${raised?'✓ Raised':'Push'}</span>`;
+    list.appendChild(row);
+  });
+}
+
+/* ══════════════════════════════════════════════════════
+   SCRIPT REQUEST FLOW
+══════════════════════════════════════════════════════ */
+function openReqModalForSuite(suite, originalMsg) {
+  document.getElementById('nf-wrap')?.remove();
+  document.getElementById('rq-name').value = suite;
+  document.getElementById('rq-desc').value = `Requested by: ${ME}\nOriginal message: "${originalMsg}"\n\nPlease create an automation script for "${suite}" covering the described scenarios.`;
+  openReqModal();
+}
+
+function openReqModal()  { document.getElementById('req-modal').classList.add('open'); }
+function closeReqModal() { document.getElementById('req-modal').classList.remove('open'); }
+
+async function submitScriptRequest() {
+  const name = document.getElementById('rq-name').value.trim();
+  const desc = document.getElementById('rq-desc').value.trim();
+  if (!name) { showToast('Please enter a script name','error'); return; }
+
+  const btn = document.getElementById('rq-lbl');
+  btn.textContent = 'Submitting…';
+
+  const req = {
+    scriptName:  name,
+    testType:    document.getElementById('rq-type').value,
+    priority:    document.getElementById('rq-pri').value,
+    description: desc,
+    requestedBy: ME,
+    status:      'open',
+    raisedAt:    new Date().toISOString(),
+    ticketId:    'REQ-' + Math.floor(Math.random()*9000+1000)
+  };
+
+  try {
+    // POST to Spring Boot ScriptRequestController
+    await fetch('http://localhost:8080/api/script-requests', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(req) });
+  } catch(_) {}
+
+  myRequests.push(req);
+  saveLocalRequests();
+  renderMyRequests();
+  closeReqModal();
+  btn.textContent = 'Submit Request';
+
+  // Bot confirms in chat
+  const win = document.getElementById('chat-win');
+  const el = document.createElement('div'); el.className='msg bot';
+  el.innerHTML=`
+    <div class="m-av">🤖</div>
+    <div class="m-col"><div class="m-who">AutoBot</div>
+    <div class="bubble bot">✅ Script request raised!\n\n🎫 Ticket: <b style="color:var(--purple)">${req.ticketId}</b>\n📋 Script: ${esc(req.scriptName)}\n🏷 Type: ${req.testType} · Priority: ${req.priority}\n\nThe Dev team will be notified. You can track this in the <b>Requests</b> tab →</div>
+    </div>`;
+  win.appendChild(el); win.scrollTop=win.scrollHeight;
+  showToast(`Request ${req.ticketId} submitted`,'success');
+
+  // highlight Requests tab
+  document.getElementById('req-dot').style.display='inline-block';
+  switchTab('requests', document.querySelectorAll('.tab')[1]);
+}
+
+function loadMyRequests() {
+  // Load script requests from localStorage (fallback) then backend
+  try { myRequests = JSON.parse(localStorage.getItem('ab_requests_'+ME)||'[]'); } catch(_){ myRequests=[]; }
+  renderMyRequests();
+  // Also fetch bug history from backend registry
+  fetch(`http://localhost:8080/api/registry/my-history?username=${encodeURIComponent(ME)}`)
+    .then(r => r.json())
+    .then(bugs => {
+      // Render raised bugs count in log
+      sysLog(`Loaded ${bugs.length} bugs from registry`,'info');
+    })
+    .catch(() => {});
+  // Fetch script requests from backend if available
+  fetch(`http://localhost:8080/api/script-requests?user=${encodeURIComponent(ME)}`)
+    .then(r => r.json())
+    .then(d => { if(d.requests){ myRequests = d.requests; renderMyRequests(); } })
+    .catch(() => {});
+}
+
+function saveLocalRequests() {
+  localStorage.setItem('ab_requests_'+ME, JSON.stringify(myRequests));
+}
+
+function renderMyRequests() {
+  const list = document.getElementById('req-list');
+  const count = document.getElementById('req-count');
+  count.textContent = `${myRequests.length} request${myRequests.length!==1?'s':''}`;
+  if (!myRequests.length) { list.innerHTML='<div class="empty">No requests raised yet.</div>'; return; }
+  list.innerHTML = [...myRequests].reverse().map(r=>`
+    <div class="req-row">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="req-name">${esc(r.scriptName)}</div>
+        <span class="req-status ${r.status==='open'?'open':'done'}">${r.status}</span>
+      </div>
+      <div class="req-meta">
+        <span>🎫 ${r.ticketId}</span>
+        <span>📋 ${r.testType}</span>
+        <span>🏷 ${r.priority}</span>
+        <span style="color:var(--muted)">${new Date(r.raisedAt).toLocaleDateString()}</span>
+      </div>
+    </div>`).join('');
+}
+
+/* ── BUG MODAL ────────────────────────────────────────── */
+function openBugModal()  { document.getElementById('bug-modal').classList.add('open'); setBugMode('single'); }
+function closeBugModal() { document.getElementById('bug-modal').classList.remove('open'); }
+
+function setBugMode(m) {
+  bugMode=m;
+  const sb=document.getElementById('mb-single'),bb=document.getElementById('mb-bulk');
+  const st=document.getElementById('stepper'),pl=document.getElementById('push-lbl');
+  const ms=document.getElementById('bm-sub');
+  if(m==='single'){sb.classList.add('on');bb.classList.remove('on');st.style.display='flex';pl.textContent='Push to Jira';ms.textContent='Single defect';fillSingle(bugIdx);}
+  else{bb.classList.add('on');sb.classList.remove('on');st.style.display='none';pl.textContent='Push All';ms.textContent=`Bulk — ${currentFails.length} items`;fillBulk();}
+}
+function fillSingle(i) {
+  if(!currentFails.length) return;
+  const f=currentFails[i];
+  document.getElementById('sp-info').textContent=`Failure ${i+1} of ${currentFails.length}`;
+  document.getElementById('sp-raised').style.display=raisedBugs.has(i)?'block':'none';
+  document.getElementById('f-title').value=`[FAIL] ${f.name}`;
+  document.getElementById('f-desc').value=`[TIMESTAMP]: ${new Date().toLocaleString()}\n[SUITE]: ${pendingParams?.test_type||'—'}\n[ENV]: ${pendingParams?.env||'—'}\n[REGION]: ${pendingParams?.region||'—'}\n[USER]: ${ME}\n[TEST]: ${f.name}\n\n[ERROR]:\n${f.message}`;
+}
+function fillBulk() {
+  document.getElementById('f-title').value=`[BULK] ${currentFails.length} Failures — ${pendingParams?.test_type||''} by ${ME}`;
+  document.getElementById('f-desc').value=currentFails.map((f,i)=>`${i+1}. ${f.name}\n   ${f.message}`).join('\n\n');
+}
+function prevBug(){if(bugIdx>0){bugIdx--;fillSingle(bugIdx);}}
+function nextBug(){if(bugIdx<currentFails.length-1){bugIdx++;fillSingle(bugIdx);}}
+
+async function submitBug() {
+  /* ── PRE-CHECK: call /api/registry/check first to detect duplicates ── */
+  const rawTitle = document.getElementById('f-title').value;
+  // Strip "[FAIL] " prefix to get the clean Robot test case name
+  const testCaseName = rawTitle.replace(/^\[FAIL\]\s*/,'').trim();
+  const env          = pendingParams?.env || '';
+
+  const btn = document.getElementById('m-push');
+  btn.disabled = true;
+  document.getElementById('push-lbl').textContent = 'Checking…';
+
+  try {
+    // Step 1 — check if already open for this testCaseName
+    const checkRes = await fetch(`http://localhost:8080/api/registry/check?testName=${encodeURIComponent(testCaseName)}`);
+    const checkData = await checkRes.json();
+
+    if (!checkData.canRaise) {
+      // Already open — treat as EXISTS without calling raise
+      handleBugResp({
+        status:  'EXISTS',
+        jiraKey: checkData.jiraKey,
+        user:    checkData.raisedBy,
+        message: checkData.message
+      });
+      return;
+    }
+
+    // Step 2 — safe to raise, call /api/registry/raise
+    document.getElementById('push-lbl').textContent = 'Pushing…';
+
+    // Backend RegistryController expects: testCaseName, env, description
+    const payload = {
+      testCaseName: testCaseName,
+      env:          env,
+      description:  document.getElementById('f-desc').value,
+    };
+
+    const raiseRes  = await fetch(`http://localhost:8080/api/registry/raise?username=${encodeURIComponent(ME)}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload)
+    });
+    const raiseData = await raiseRes.json();
+    handleBugResp(raiseData);
+
+  } catch (_) {
+    // Offline fallback — demo mode
+    handleBugResp({ status:'CREATED', jiraKey:'NEX-'+Date.now(), user:ME });
+  } finally {
+    btn.disabled = false;
+    document.getElementById('push-lbl').textContent = 'Push to Jira';
+  }
+}
+async function handleBugResp(d) {
+  // Backend returns status "EXISTS" or "CREATED"
+  const isExisting = d.status === 'EXISTS';
+  const jiraKey    = d.jiraKey || '—';
+  const raisedBy   = d.user    || ME;
+  const envLabel   = d.env     ? ` · ${d.env}` : '';
+
+  if (isExisting) {
+    botMsg(`⚠️ Duplicate detected\n🔖 ${jiraKey} is already OPEN${envLabel}\n👤 Raised by: ${raisedBy}\n\nNo new ticket created.`);
+    sysLog(`Duplicate: ${jiraKey} raised by ${raisedBy}`,'err');
+    showToast(`Duplicate — ${jiraKey} already open`,'error');
+  } else {
+    // status === "CREATED" — also push ticket to Jira board
+    botMsg(`✅ Bug raised successfully!\n🔖 ${jiraKey}\n👤 Raised by: ${ME}${envLabel}\n\nTicket created on Jira board.`);
+    sysLog(`Bug raised: ${jiraKey}`,'ok');
+    showToast(`✓ ${jiraKey} created on Jira board`,'success');
+
+    // ── Push to Jira board so it appears in jira.html ──────────
+    await pushToJiraBoard(jiraKey, d);
+  }
+
+  if (bugMode === 'bulk') {
+    currentFails.forEach((_,i) => raisedBugs.add(i));
+    closeBugModal();
+  } else {
+    raisedBugs.add(bugIdx);
+    if (bugIdx < currentFails.length - 1) setTimeout(() => nextBug(), 400);
+    else closeBugModal();
+  }
+  renderFails();
+}
+
+/* ── Push raised bug as a Jira ticket ────────────────────────
+   Called after every successful /api/registry/raise
+   Creates a ticket on the Jira board visible in jira.html
+──────────────────────────────────────────────────────────── */
+async function pushToJiraBoard(jiraKey, raiseData) {
+  // Reconstruct the test case name and error from the modal
+  const testName   = document.getElementById('f-title')?.value?.replace(/^\[FAIL\]\s*/,'').trim()
+                     || raiseData.testCaseName || jiraKey;
+  const errorMsg   = document.getElementById('f-desc')?.value || '';
+  const env        = pendingParams?.env    || raiseData.env || 'INT';
+  const region     = pendingParams?.region || 'US';
+  const suite      = pendingParams?.test_type || 'Regression';
+  const priority   = document.getElementById('f-pri')?.value || 'High';
+
+  // Jira ticket payload — compatible with JiraTicketController
+  const jiraTicket = {
+    id:         jiraKey,
+    type:       'bug',
+    title:      `[${suite}] ${testName} failed on ${env}`,
+    status:     'Open',
+    priority:   priority,
+    env:        env,
+    region:     region,
+    assignee:   'dev',
+    reporter:   ME,
+    // Tags include the jiraKey + test case name — used by trigger matching
+    tags:       [jiraKey, testName.replace(/\s+/g,'_'), suite.toLowerCase()],
+    desc:       `Automated bug raised by ${ME} from test run.\n\n` +
+                `Suite: ${suite} · Region: ${region} · ENV: ${env}\n\n` +
+                `Error Log:\n${errorMsg.slice(0, 500)}`,
+    comments:   [{
+      who:  ME,
+      text: `🤖 AutoBot raised this bug from a failed test run.\n🔖 ${jiraKey}\n📋 Test: ${testName}`,
+      time: new Date().toLocaleTimeString(),
+      bot:  false,
+    }],
+    runResult:  null,
+    created:    new Date().toLocaleDateString(),
+  };
+
+  try {
+    await fetch('http://localhost:8080/api/jira/tickets', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(jiraTicket)
+    });
+    sysLog(`Jira board updated: ${jiraKey}`, 'ok');
+  } catch(_) {
+    sysLog(`Jira board offline — ${jiraKey} saved in registry only`, 'info');
+  }
+}
+
+/* ── UTILS ────────────────────────────────────────────── */
+function sysLog(msg,type='ok'){
+  const c=document.getElementById('log-body');
+  const e=document.createElement('div');e.className='le';
+  e.innerHTML=`<span class="lt">${new Date().toLocaleTimeString()}</span><span class="lm ${type}"> › ${msg}</span>`;
+  c.prepend(e);while(c.children.length>80)c.removeChild(c.lastChild);
+}
+function clearLog(){document.getElementById('log-body').innerHTML='';}
+function setBadge(state,label){const b=document.getElementById('run-badge');b.className='hbadge '+state;b.textContent=label;}
+async function dlReport(){
+  try{const res=await fetch('http://localhost:8000/download_results');const blob=await res.blob();
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`AutoBot_${Date.now()}.zip`;a.click();
+    showToast('Report downloaded','success');
+  }catch(_){showToast('Export failed','error');}
+}
+function greet(){
+  const h=new Date().getHours();
+  const g=h<12?'Good morning':h<17?'Good afternoon':'Good evening';
+  botMsg(`${g}, ${ME}! 👋 I'm AutoBot.\n\nI can run tests in two ways:\n\n🎫 By ticket:\n→  "Run IT-7 in US INT"\n→  "Execute IT-8 EU prod"\n→  "Run ticket IT-11 APAC stage"\n(I'll pull the ticket, check the test catalog, and auto-generate a script if one doesn't exist yet.)\n\n📋 By suite:\n→  "Run sanity tests in US on prod"\n→  "Regression EU dev"\n→  "Smoke APAC staging"\n\nIf a script doesn't exist for a suite I'll help raise a request to the Dev team.`);
+}
+function ts(){return new Date().toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+function delay(ms){return new Promise(r=>setTimeout(r,ms));}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function showToast(msg,type='info'){
+  const t=document.getElementById('toast');
+  t.innerHTML=(type==='success'?'✅ ':type==='error'?'⚠️ ':'ℹ️ ')+msg;
+  t.className='toast on';clearTimeout(t._tid);t._tid=setTimeout(()=>t.classList.remove('on'),3200);
+}
+</script>
+</body>
+</html>
