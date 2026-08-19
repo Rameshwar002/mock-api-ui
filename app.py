@@ -380,14 +380,14 @@ def _load_tickets():
 def _save_tickets(tickets):
     _save(TICKETS_FILE, tickets)
 
-def _next_ticket_id(tickets):
+def _next_ticket_id(tickets, prefix="IT"):
     nums = []
     for t in tickets:
         try:
             nums.append(int(str(t.get("id", "IT-0")).split("-")[-1]))
         except ValueError:
             pass
-    return f"IT-{(max(nums) + 1) if nums else 11}"
+    return f"{prefix}-{(max(nums) + 1) if nums else 11}"
 
 
 def _load_catalog():
@@ -1058,6 +1058,55 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
         return
     tk = tickets[idx]
 
+    # ── BUG-TICKET DELEGATION ────────────────────────────────────────────
+    # If this ticket is a bug linked back to a parent ticket, don't run the
+    # full understand-and-generate pipeline from scratch — the parent was,
+    # by definition, already tested to produce this bug, so reuse its
+    # existing test case directly. Falls through to the normal flow only if
+    # the parent has no real, on-disk coverage to delegate to (e.g. it was
+    # cleaned up since), so a run never silently does nothing.
+    parent_id = tk.get("parentTicket")
+    if parent_id:
+        parent = next((t for t in tickets if t.get("id") == parent_id), None)
+        if parent:
+            p_matched, p_missing = _analyze_ticket(parent)
+            if p_matched and not p_missing:
+                note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
+                        f"reusing its existing test case ({', '.join(m['name'] for m in p_matched)}) "
+                        f"instead of generating a new one. No generation needed.")
+                tk.setdefault("comments", []).append({
+                    "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
+                    "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
+                })
+                tickets[idx] = tk
+                _save_tickets(tickets)
+                with _state_lock:
+                    execution_state["analysis"] = {
+                        "matchedTests": p_matched, "generated": [], "note": note,
+                        "delegatedTo": parent_id,
+                    }
+                    execution_state["stage"] = "executing"
+                target_files = [os.path.join(BASE, e["file"]) for e in p_matched]
+                _execute_robot(ticket_id, region, env, user, target_files)
+                return
+            # Parent exists but has no real coverage to delegate to (e.g. its
+            # files were removed) — note this and fall through to the normal
+            # pipeline below as a safety net, rather than silently doing nothing.
+            tk.setdefault("comments", []).append({
+                "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
+                "time": "Just now", "isBot": True, "avatar": "#4f8ef7",
+                "content": (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id}, but "
+                            f"{parent_id} has no existing test coverage to reuse right now - "
+                            f"generating a fresh script for {ticket_id} instead."),
+            })
+        else:
+            tk.setdefault("comments", []).append({
+                "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
+                "time": "Just now", "isBot": True, "avatar": "#4f8ef7",
+                "content": (f"AutoBot: {ticket_id} references parent ticket {parent_id}, but it "
+                            f"no longer exists - generating a fresh script for {ticket_id} instead."),
+            })
+
     matched, missing = _analyze_ticket(tk)
     if missing:
         with _state_lock:
@@ -1473,8 +1522,12 @@ def raise_bug():
             # Persist locally too for dashboard
             _persist_bug(sb_data.get("jiraKey", ""), test_name, error_msg,
                          env, priority, epic, suite, username, sb_data.get("status", "success"))
+            bug_ticket = _link_bug_ticket(suite, sb_data.get("jiraKey", ""), test_name, error_msg, priority, username)
             _add_feed(username, f"raised bug {sb_data.get('jiraKey','')} — {test_name}", "bug")
-            return _ok(sb_data)
+            resp_data = dict(sb_data)
+            if bug_ticket:
+                resp_data["bugTicket"] = bug_ticket["id"]
+            return _ok(resp_data)
     except Exception:
         pass  # Spring Boot not running — fall through to local logic
 
@@ -1492,8 +1545,51 @@ def raise_bug():
 
     jira_key = f"QA-{1000 + len(bugs) + 1}"
     _persist_bug(jira_key, test_name, error_msg, env, priority, epic, suite, username, "success")
+    bug_ticket = _link_bug_ticket(suite, jira_key, test_name, error_msg, priority, username)
     _add_feed(username, f"raised bug {jira_key} — {test_name}", "bug")
-    return _ok({"status": "success", "jiraKey": jira_key, "user": username})
+    resp = {"status": "success", "jiraKey": jira_key, "user": username}
+    if bug_ticket:
+        resp["bugTicket"] = bug_ticket["id"]
+    return _ok(resp)
+
+
+def _link_bug_ticket(parent_ticket_id, bug_key, test_name, error_msg, priority, username):
+    """When a bug is raised from a ticket-based run, create a companion 'bug
+    ticket' on the Jira board linked back to the parent via parentTicket.
+    Running this bug ticket will DELEGATE to the parent's existing test
+    case instead of generating a new one from scratch (see
+    _run_ticket_pipeline) — the parent was, by definition, already tested
+    to produce this failure, so its script already covers this case.
+    Returns the new ticket dict, or None if there's no real parent ticket
+    to link to (suite wasn't a ticket ID — e.g. a plain suite-based run)."""
+    if not parent_ticket_id:
+        return None
+    tickets = _load_tickets()
+    parent = next((t for t in tickets if t.get("id") == parent_ticket_id), None)
+    if not parent:
+        return None  # 'suite' wasn't actually a ticket ID (a plain suite run) — nothing to link
+
+    new_id = _next_ticket_id(tickets, prefix="BUG")
+    bug_ticket = {
+        "id": new_id, "title": f"Bug: {test_name}", "status": "Open",
+        "priority": priority, "urgency": priority, "impact": "Moderate / Limited",
+        "service": parent.get("service", "General"), "reporter": username, "assignee": None,
+        "desc": error_msg or f"Failure raised from a run of {parent_ticket_id}.",
+        "robotTags": parent.get("robotTags", []),
+        "reqType": "Report a system problem", "severity": priority, "labels": "auto-linked-bug",
+        "comments": [{
+            "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
+            "time": "Just now", "isBot": True, "avatar": "#4f8ef7",
+            "content": (f"Linked to parent ticket {parent_ticket_id} (bug {bug_key}). "
+                        f"Running this ticket will reuse {parent_ticket_id}'s existing "
+                        f"test case instead of generating a new one."),
+        }],
+        "created": "Just now", "updated": "Just now", "testResults": None,
+        "parentTicket": parent_ticket_id, "linkedBugKey": bug_key, "isBug": True,
+    }
+    tickets.insert(0, bug_ticket)
+    _save_tickets(tickets)
+    return bug_ticket
 
 
 def _persist_bug(jira_key, test_name, error_msg, env, priority, epic, suite, username, status):
