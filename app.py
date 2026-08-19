@@ -1484,6 +1484,24 @@ def run_ticket_script(ticket_id):
 #  ROUTES — JIRA / BUG REGISTRY  (proxies to Spring Boot)
 # ══════════════════════════════════════════════════════════════════════════════
 
+@app.route("/api/registry/check", methods=["GET"])
+def check_bug():
+    """Duplicate-check before raising a bug — used by the manual 'Report Bug'
+    modal in chat.html. Mirrors the dedup logic already in raise_bug()."""
+    test_name = (request.args.get("testName") or "").strip()
+    if not test_name:
+        return _ok({"canRaise": True})
+    bugs = _load(BUGS_FILE, [])
+    existing = next((b for b in bugs if b["testCaseName"] == test_name), None)
+    if existing:
+        return _ok({
+            "canRaise": False, "jiraKey": existing["jiraKey"],
+            "raisedBy": existing["raisedBy"],
+            "message": f"A bug for '{test_name}' is already open ({existing['jiraKey']}).",
+        })
+    return _ok({"canRaise": True})
+
+
 @app.route("/api/registry/raise", methods=["POST"])
 def raise_bug():
     data     = request.get_json(silent=True) or {}

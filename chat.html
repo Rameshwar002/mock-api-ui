@@ -1493,8 +1493,9 @@ async function submitBug() {
   document.getElementById('push-lbl').textContent = 'Checking…';
 
   try {
-    // Step 1 — check if already open for this testCaseName
-    const checkRes = await fetch(`http://localhost:8080/api/registry/check?testName=${encodeURIComponent(testCaseName)}`);
+    // Step 1 — check if already open for this testCaseName (via Flask, which
+    // persists locally and doesn't require Spring Boot to be running)
+    const checkRes = await fetch(`${API_BASE}/api/registry/check?testName=${encodeURIComponent(testCaseName)}`);
     const checkData = await checkRes.json();
 
     if (!checkData.canRaise) {
@@ -1508,17 +1509,22 @@ async function submitBug() {
       return;
     }
 
-    // Step 2 — safe to raise, call /api/registry/raise
+    // Step 2 — safe to raise, call /api/registry/raise via Flask.
+    // Pass the ticket ID (if this bug came from a ticket-based run) as
+    // 'suite' so the backend links this bug to its parent ticket — running
+    // the resulting bug ticket will then reuse the parent's test case
+    // instead of generating a new one from scratch.
     document.getElementById('push-lbl').textContent = 'Pushing…';
 
-    // Backend RegistryController expects: testCaseName, env, description
     const payload = {
       testCaseName: testCaseName,
       env:          env,
-      description:  document.getElementById('f-desc').value,
+      errorMessage: document.getElementById('f-desc').value,
+      suite:        pendingParams?.ticketId || pendingParams?.test_type || '',
+      priority:     'High',
     };
 
-    const raiseRes  = await fetch(`http://localhost:8080/api/registry/raise?username=${encodeURIComponent(ME)}`, {
+    const raiseRes  = await fetch(`${API_BASE}/api/registry/raise?username=${encodeURIComponent(ME)}`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(payload)
@@ -1526,9 +1532,12 @@ async function submitBug() {
     const raiseData = await raiseRes.json();
     handleBugResp(raiseData);
 
-  } catch (_) {
-    // Offline fallback — demo mode
-    handleBugResp({ status:'CREATED', jiraKey:'NEX-'+Date.now(), user:ME });
+  } catch (err) {
+    // Never fabricate a fake success — if the backend is unreachable, say so.
+    document.getElementById('push-lbl').textContent = 'Push to Jira';
+    btn.disabled = false;
+    showToast('⚠️ Could not reach the backend — is Flask running on ' + API_BASE + '?', 'info');
+    return;
   } finally {
     btn.disabled = false;
     document.getElementById('push-lbl').textContent = 'Push to Jira';
