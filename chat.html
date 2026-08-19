@@ -841,13 +841,38 @@ async function handleTicketRun(ticketId, lm) {
   botMsg(`🔍 Looking up ${ticketId}…`);
 
   let ticket = null;
+  let networkError = false;
   try {
     const res = await fetch(`${API_BASE}/api/tickets/${encodeURIComponent(ticketId)}`);
-    if (res.ok) { const d = await res.json(); ticket = d.ticket; }
-  } catch (_) { /* backend unreachable */ }
+    if (res.ok) {
+      const d = await res.json();
+      ticket = d.ticket;
+    }
+    // res.ok === false here means the backend responded but said "not found"
+    // (a genuine 404) — NOT a network failure. Keep these two cases distinct.
+  } catch (_) {
+    networkError = true;  // fetch itself threw — the backend is unreachable
+  }
 
   if (!ticket) {
-    botMsg(`⚠️ I couldn't find ${ticketId} in the ticket system.\n\nCheck the ID, or create it on the Jira board first — then ask me to run it.`);
+    if (networkError) {
+      botMsg(`⚠️ Couldn't reach the backend at ${API_BASE} — is Flask running? This is NOT "ticket not found"; the lookup never got a response at all.`);
+      return;
+    }
+    // Genuine 404 — help pin down why by showing what tickets DO exist.
+    let existingIds = [];
+    try {
+      const listRes = await fetch(`${API_BASE}/api/tickets`);
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        existingIds = (listData.tickets || []).map(t => t.id);
+      }
+    } catch (_) { /* best-effort only */ }
+
+    const hint = existingIds.length
+      ? `\n\nTickets that DO exist right now: ${existingIds.join(', ')}`
+      : `\n\n(Couldn't even list tickets — is data/tickets.json empty or was the backend restarted since ${ticketId} was created?)`;
+    botMsg(`⚠️ The backend responded, but ${ticketId} doesn't exist in tickets.json right now.${hint}\n\nIf you created it recently: check nothing restarted the Flask server or cleared its data directory in between.`);
     return;
   }
 
