@@ -1593,6 +1593,16 @@ def _find_bug_ticket_by_key(bug_key):
     return next((t for t in tickets if t.get("linkedBugKey") == bug_key), None)
 
 
+def _bug_ticket_id_from_key(bug_key):
+    """Derive the linked ticket's ID directly from the bug's own key, so the
+    two are always trivially traceable to each other — bug QA-1233 always
+    produces ticket BUG-1233, never an unrelated number from a separate
+    counter."""
+    m = re.search(r"(\d+)\s*$", bug_key or "")
+    num = m.group(1) if m else str(int(datetime.utcnow().timestamp()))[-6:]
+    return f"BUG-{num}"
+
+
 def _link_bug_ticket(parent_ticket_id, bug_key, test_name, error_msg, priority, username):
     """When a bug is raised from a ticket-based run, create a companion 'bug
     ticket' on the Jira board linked back to the parent via parentTicket.
@@ -1609,7 +1619,14 @@ def _link_bug_ticket(parent_ticket_id, bug_key, test_name, error_msg, priority, 
     if not parent:
         return None  # 'suite' wasn't actually a ticket ID (a plain suite run) — nothing to link
 
-    new_id = _next_ticket_id(tickets, prefix="BUG")
+    new_id = _bug_ticket_id_from_key(bug_key)
+    # Guard against collisions: if a ticket with this exact ID already
+    # exists (e.g. this exact bug was somehow linked before), reuse it
+    # rather than creating a duplicate or clobbering it.
+    existing = next((t for t in tickets if t.get("id") == new_id), None)
+    if existing:
+        return existing
+
     bug_ticket = {
         "id": new_id, "title": f"Bug: {test_name}", "status": "Open",
         "priority": priority, "urgency": priority, "impact": "Moderate / Limited",
