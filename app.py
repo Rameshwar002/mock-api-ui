@@ -1494,11 +1494,16 @@ def check_bug():
     bugs = _load(BUGS_FILE, [])
     existing = next((b for b in bugs if b["testCaseName"] == test_name), None)
     if existing:
-        return _ok({
+        bug_ticket = _find_bug_ticket_by_key(existing["jiraKey"])
+        resp = {
             "canRaise": False, "jiraKey": existing["jiraKey"],
             "raisedBy": existing["raisedBy"],
             "message": f"A bug for '{test_name}' is already open ({existing['jiraKey']}).",
-        })
+        }
+        if bug_ticket:
+            resp["bugTicket"] = bug_ticket["id"]
+            resp["message"] += f" Run it via ticket {bug_ticket['id']}."
+        return _ok(resp)
     return _ok({"canRaise": True})
 
 
@@ -1540,7 +1545,9 @@ def raise_bug():
             # Persist locally too for dashboard
             _persist_bug(sb_data.get("jiraKey", ""), test_name, error_msg,
                          env, priority, epic, suite, username, sb_data.get("status", "success"))
-            bug_ticket = _link_bug_ticket(suite, sb_data.get("jiraKey", ""), test_name, error_msg, priority, username)
+            is_duplicate = str(sb_data.get("status", "")).upper() == "EXISTS"
+            bug_ticket = (_find_bug_ticket_by_key(sb_data.get("jiraKey", "")) if is_duplicate
+                          else _link_bug_ticket(suite, sb_data.get("jiraKey", ""), test_name, error_msg, priority, username))
             _add_feed(username, f"raised bug {sb_data.get('jiraKey','')} — {test_name}", "bug")
             resp_data = dict(sb_data)
             if bug_ticket:
@@ -1555,11 +1562,15 @@ def raise_bug():
         (b for b in bugs if b["testCaseName"] == test_name and b["env"] == env), None
     )
     if existing:
-        return _ok({
+        bug_ticket = _find_bug_ticket_by_key(existing["jiraKey"])
+        resp = {
             "status":  "EXISTS",
             "jiraKey": existing["jiraKey"],
             "user":    existing["raisedBy"],
-        })
+        }
+        if bug_ticket:
+            resp["bugTicket"] = bug_ticket["id"]
+        return _ok(resp)
 
     jira_key = f"QA-{1000 + len(bugs) + 1}"
     _persist_bug(jira_key, test_name, error_msg, env, priority, epic, suite, username, "success")
@@ -1569,6 +1580,17 @@ def raise_bug():
     if bug_ticket:
         resp["bugTicket"] = bug_ticket["id"]
     return _ok(resp)
+
+
+def _find_bug_ticket_by_key(bug_key):
+    """Find the bug ticket already linked to a given Jira bug key, if one
+    exists. Used whenever a bug turns out to be a duplicate of one already
+    raised — without this, the caller only ever gets the Jira bug key back
+    (e.g. 'QA-1001'), which was never a valid, runnable ticket ID."""
+    if not bug_key:
+        return None
+    tickets = _load_tickets()
+    return next((t for t in tickets if t.get("linkedBugKey") == bug_key), None)
 
 
 def _link_bug_ticket(parent_ticket_id, bug_key, test_name, error_msg, priority, username):

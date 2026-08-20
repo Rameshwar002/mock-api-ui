@@ -1569,24 +1569,23 @@ async function submitBug() {
   }
 }
 async function handleBugResp(d) {
-  // Backend returns status "EXISTS" or "CREATED"
+  // Backend returns status "EXISTS" or "success"/"CREATED"
   const isExisting = d.status === 'EXISTS';
   const jiraKey    = d.jiraKey || '—';
   const raisedBy   = d.user    || ME;
   const envLabel   = d.env     ? ` · ${d.env}` : '';
+  const runLine    = d.bugTicket
+    ? `\n\n🎫 Runnable ticket: ${d.bugTicket}\n→ say "run ${d.bugTicket}" to reuse the parent's existing test case.`
+    : `\n\n(No linked ticket was created — this bug wasn't raised from a ticket-based run, so there's nothing to run directly.)`;
 
   if (isExisting) {
-    botMsg(`⚠️ Duplicate detected\n🔖 ${jiraKey} is already OPEN${envLabel}\n👤 Raised by: ${raisedBy}\n\nNo new ticket created.`);
+    botMsg(`⚠️ Duplicate detected\n🔖 ${jiraKey} is already OPEN${envLabel}\n👤 Raised by: ${raisedBy}\n\nNo new bug was raised.${runLine}`);
     sysLog(`Duplicate: ${jiraKey} raised by ${raisedBy}`,'err');
     showToast(`Duplicate — ${jiraKey} already open`,'error');
   } else {
-    // status === "CREATED" — also push ticket to Jira board
-    botMsg(`✅ Bug raised successfully!\n🔖 ${jiraKey}\n👤 Raised by: ${ME}${envLabel}\n\nTicket created on Jira board.`);
+    botMsg(`✅ Bug raised successfully!\n🔖 ${jiraKey}\n👤 Raised by: ${ME}${envLabel}${runLine}`);
     sysLog(`Bug raised: ${jiraKey}`,'ok');
-    showToast(`✓ ${jiraKey} created on Jira board`,'success');
-
-    // ── Push to Jira board so it appears in jira.html ──────────
-    await pushToJiraBoard(jiraKey, d);
+    showToast(`✓ ${jiraKey} raised${d.bugTicket ? ' — ticket ' + d.bugTicket : ''}`,'success');
   }
 
   if (bugMode === 'bulk') {
@@ -1598,58 +1597,6 @@ async function handleBugResp(d) {
     else closeBugModal();
   }
   renderFails();
-}
-
-/* ── Push raised bug as a Jira ticket ────────────────────────
-   Called after every successful /api/registry/raise
-   Creates a ticket on the Jira board visible in jira.html
-──────────────────────────────────────────────────────────── */
-async function pushToJiraBoard(jiraKey, raiseData) {
-  // Reconstruct the test case name and error from the modal
-  const testName   = document.getElementById('f-title')?.value?.replace(/^\[FAIL\]\s*/,'').trim()
-                     || raiseData.testCaseName || jiraKey;
-  const errorMsg   = document.getElementById('f-desc')?.value || '';
-  const env        = pendingParams?.env    || raiseData.env || 'INT';
-  const region     = pendingParams?.region || 'US';
-  const suite      = pendingParams?.test_type || 'Regression';
-  const priority   = document.getElementById('f-pri')?.value || 'High';
-
-  // Jira ticket payload — compatible with JiraTicketController
-  const jiraTicket = {
-    id:         jiraKey,
-    type:       'bug',
-    title:      `[${suite}] ${testName} failed on ${env}`,
-    status:     'Open',
-    priority:   priority,
-    env:        env,
-    region:     region,
-    assignee:   'dev',
-    reporter:   ME,
-    // Tags include the jiraKey + test case name — used by trigger matching
-    tags:       [jiraKey, testName.replace(/\s+/g,'_'), suite.toLowerCase()],
-    desc:       `Automated bug raised by ${ME} from test run.\n\n` +
-                `Suite: ${suite} · Region: ${region} · ENV: ${env}\n\n` +
-                `Error Log:\n${errorMsg.slice(0, 500)}`,
-    comments:   [{
-      who:  ME,
-      text: `🤖 AutoBot raised this bug from a failed test run.\n🔖 ${jiraKey}\n📋 Test: ${testName}`,
-      time: new Date().toLocaleTimeString(),
-      bot:  false,
-    }],
-    runResult:  null,
-    created:    new Date().toLocaleDateString(),
-  };
-
-  try {
-    await fetch('http://localhost:8080/api/jira/tickets', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(jiraTicket)
-    });
-    sysLog(`Jira board updated: ${jiraKey}`, 'ok');
-  } catch(_) {
-    sysLog(`Jira board offline — ${jiraKey} saved in registry only`, 'info');
-  }
 }
 
 /* ── UTILS ────────────────────────────────────────────── */
