@@ -844,9 +844,24 @@ def _parse_output_xml():
         execution_state["failures"] = failures
 
 
-def _demo_result():
-    """Generate realistic demo results when Robot Framework is absent."""
+def _demo_result(test_name=None):
+    """Generate realistic demo results when Robot Framework is absent.
+    test_name: if set, simulate running ONLY that single test case (as a
+    real --test-scoped run would) instead of a random full-suite result."""
     import random
+    if test_name:
+        # Single-test mode: this test was known to be failing (that's why a
+        # bug was raised for it) — simulate a realistic re-run of just it.
+        with _state_lock:
+            execution_state.update({
+                "total": 1, "passed": 0, "failed": 1, "skipped": 0,
+                "failures": [{
+                    "name": test_name,
+                    "message": "AssertionError: Expected 200 but got 400. (re-run of the originally failed test)",
+                }],
+            })
+        return
+
     total   = random.randint(12, 40)
     failed  = random.randint(0, min(5, total // 5))
     skipped = random.randint(0, 2)
@@ -926,10 +941,15 @@ def _preflight_check():
     return None
 
 
-def _execute_robot(test_type, region, env, user, target_files=None):
+def _execute_robot(test_type, region, env, user, target_files=None, test_name=None):
     """The actual subprocess/parse/demo-fallback core, shared by both
     suite-based and ticket-based runs. Assumes execution_state["status"] is
-    already "running" and "started_at" already set by the caller."""
+    already "running" and "started_at" already set by the caller.
+
+    test_name: if set, only this single Robot Framework test case is run
+    (via --test) within target_files — used when a bug ticket is linked to
+    one specific failed test, so re-running it doesn't re-run the parent's
+    entire suite."""
     if target_files:
         preflight_error = _preflight_check()
         if preflight_error:
@@ -950,7 +970,10 @@ def _execute_robot(test_type, region, env, user, target_files=None):
             "--outputdir", RESULTS_DIR,
             "--variable",  f"REGION:{region}",
             "--variable",  f"ENV:{env}",
-        ] + target_files
+        ]
+        if test_name:
+            cmd += ["--test", test_name]
+        cmd += target_files
     else:
         cmd = [
             sys.executable, "-m", "robot",
@@ -971,11 +994,11 @@ def _execute_robot(test_type, region, env, user, target_files=None):
             # machine — use demo data so the UI still gets a result instead
             # of an empty 0/0/0 run. This is clearly marked, not silently
             # passed off as a genuine execution.
-            _demo_result()
+            _demo_result(test_name)
             with _state_lock:
                 execution_state["mode"] = "demo"
     except FileNotFoundError:
-        _demo_result()
+        _demo_result(test_name)
         with _state_lock:
             execution_state["mode"] = "demo"
     except subprocess.TimeoutExpired:
@@ -1071,9 +1094,16 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
         if parent:
             p_matched, p_missing = _analyze_ticket(parent)
             if p_matched and not p_missing:
-                note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
-                        f"reusing its existing test case ({', '.join(m['name'] for m in p_matched)}) "
-                        f"instead of generating a new one. No generation needed.")
+                failed_test = tk.get("failedTestCase")
+                if failed_test:
+                    note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
+                            f"re-running ONLY the failed test case '{failed_test}' from "
+                            f"{parent_id}'s existing suite, not the full suite.")
+                else:
+                    note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
+                            f"reusing its existing test case ({', '.join(m['name'] for m in p_matched)}) "
+                            f"instead of generating a new one. No specific failed test was recorded, "
+                            f"so the full suite runs.")
                 tk.setdefault("comments", []).append({
                     "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
                     "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
@@ -1083,11 +1113,11 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
                 with _state_lock:
                     execution_state["analysis"] = {
                         "matchedTests": p_matched, "generated": [], "note": note,
-                        "delegatedTo": parent_id,
+                        "delegatedTo": parent_id, "singleTest": failed_test,
                     }
                     execution_state["stage"] = "executing"
                 target_files = [os.path.join(BASE, e["file"]) for e in p_matched]
-                _execute_robot(ticket_id, region, env, user, target_files)
+                _execute_robot(ticket_id, region, env, user, target_files, test_name=failed_test)
                 return
             # Parent exists but has no real coverage to delegate to (e.g. its
             # files were removed) — note this and fall through to the normal
@@ -1363,6 +1393,7 @@ def create_ticket():
         "severity":   data.get("severity", "None"),
         "labels":     data.get("labels", "None"),
         "comments":   [],
+        "likes":      [],
         "created":    "Just now",
         "updated":    "Just now",
         "testResults": None,
@@ -1394,7 +1425,7 @@ def update_ticket(ticket_id):
         return _err(f"{ticket_id} not found.", 404)
 
     allowed = {"status", "assignee", "comments", "testResults", "priority",
-               "urgency", "severity", "labels", "robotTags"}
+               "urgency", "severity", "labels", "robotTags", "likes"}
     for key in allowed:
         if key in data:
             tickets[idx][key] = data[key]
@@ -1402,6 +1433,58 @@ def update_ticket(ticket_id):
 
     _save_tickets(tickets)
     return _ok({"ticket": tickets[idx]})
+
+
+@app.route("/api/tickets/<ticket_id>/like", methods=["POST"])
+def toggle_like(ticket_id):
+    """Toggle the current user's like on a ticket. Idempotent per-user —
+    liking twice un-likes. Used by both jira.html and dashboard.html."""
+    body = request.get_json(silent=True) or {}
+    user = request.args.get("username") or body.get("user")
+    if not user:
+        return _err("username is required.", 400)
+
+    tickets = _load_tickets()
+    idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
+    if idx is None:
+        return _err(f"{ticket_id} not found.", 404)
+
+    likes = tickets[idx].setdefault("likes", [])
+    if user in likes:
+        likes.remove(user)
+        liked = False
+    else:
+        likes.append(user)
+        liked = True
+
+    _save_tickets(tickets)
+    return _ok({"ticketId": ticket_id, "liked": liked, "likes": likes, "count": len(likes)})
+
+
+@app.route("/api/tickets/<ticket_id>/comments", methods=["POST"])
+def add_comment(ticket_id):
+    """Append a single comment to a ticket. A lighter-weight alternative to
+    PATCHing the whole comments array — used by dashboard.html so it doesn't
+    need to hold a full copy of the ticket just to comment on it."""
+    body = request.get_json(silent=True) or {}
+    user = request.args.get("username") or body.get("user")
+    text = (body.get("content") or "").strip()
+    if not user or not text:
+        return _err("user and content are required.", 400)
+
+    tickets = _load_tickets()
+    idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
+    if idx is None:
+        return _err(f"{ticket_id} not found.", 404)
+
+    comment = {
+        "id": int(datetime.utcnow().timestamp() * 1000), "author": user,
+        "time": "Just now", "content": text, "isBot": False, "avatar": "#6554c0",
+    }
+    tickets[idx].setdefault("comments", []).append(comment)
+    tickets[idx]["updated"] = "Just now"
+    _save_tickets(tickets)
+    return _ok({"ticketId": ticket_id, "comment": comment, "comments": tickets[idx]["comments"]}, 201)
 
 
 @app.route("/api/test-catalog", methods=["GET"])
@@ -1610,6 +1693,12 @@ def _link_bug_ticket(parent_ticket_id, bug_key, test_name, error_msg, priority, 
     case instead of generating a new one from scratch (see
     _run_ticket_pipeline) — the parent was, by definition, already tested
     to produce this failure, so its script already covers this case.
+
+    If test_name is a genuine, specific Robot Framework test case name (not
+    a generic run-level summary like 'IT-6_AutomationRun'), it's stored as
+    failedTestCase — running this bug ticket will then target ONLY that one
+    test case within the parent's file, not the parent's entire suite.
+
     Returns the new ticket dict, or None if there's no real parent ticket
     to link to (suite wasn't a ticket ID — e.g. a plain suite-based run)."""
     if not parent_ticket_id:
@@ -1627,6 +1716,18 @@ def _link_bug_ticket(parent_ticket_id, bug_key, test_name, error_msg, priority, 
     if existing:
         return existing
 
+    # A generic run-level name (e.g. "IT-6_AutomationRun") isn't a real Robot
+    # Framework test case we could target with --test — only trust names
+    # that don't match that catch-all pattern.
+    is_specific_test = bool(test_name) and not test_name.endswith("_AutomationRun")
+    failed_test_case = test_name if is_specific_test else None
+
+    scope_note = (f"Running this ticket will re-run ONLY the failed test case "
+                   f"'{failed_test_case}' from {parent_ticket_id} — not its whole suite."
+                   if failed_test_case else
+                   f"Running this ticket will reuse {parent_ticket_id}'s existing "
+                   f"test case instead of generating a new one.")
+
     bug_ticket = {
         "id": new_id, "title": f"Bug: {test_name}", "status": "Open",
         "priority": priority, "urgency": priority, "impact": "Moderate / Limited",
@@ -1634,12 +1735,11 @@ def _link_bug_ticket(parent_ticket_id, bug_key, test_name, error_msg, priority, 
         "desc": error_msg or f"Failure raised from a run of {parent_ticket_id}.",
         "robotTags": parent.get("robotTags", []),
         "reqType": "Report a system problem", "severity": priority, "labels": "auto-linked-bug",
+        "failedTestCase": failed_test_case,
         "comments": [{
             "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
             "time": "Just now", "isBot": True, "avatar": "#4f8ef7",
-            "content": (f"Linked to parent ticket {parent_ticket_id} (bug {bug_key}). "
-                        f"Running this ticket will reuse {parent_ticket_id}'s existing "
-                        f"test case instead of generating a new one."),
+            "content": f"Linked to parent ticket {parent_ticket_id} (bug {bug_key}). {scope_note}",
         }],
         "created": "Just now", "updated": "Just now", "testResults": None,
         "parentTicket": parent_ticket_id, "linkedBugKey": bug_key, "isBug": True,
@@ -1685,13 +1785,42 @@ def list_bugs():
 @app.route("/api/registry/<jira_key>", methods=["DELETE"])
 @require_admin
 def delete_bug(jira_key):
+    """Delete a single raised bug AND its linked runnable ticket (if any) —
+    without this, deleting only the bug leaves an orphaned BUG-N ticket
+    behind that still points at a bug that no longer exists."""
     bugs   = _load(BUGS_FILE, [])
     before = len(bugs)
     bugs   = [b for b in bugs if b.get("jiraKey") != jira_key]
     if len(bugs) == before:
         return _err(f"{jira_key} not found.", 404)
     _save(BUGS_FILE, bugs)
-    return _ok({"deleted": jira_key})
+
+    tickets = _load_tickets()
+    before_t = len(tickets)
+    tickets = [t for t in tickets if t.get("linkedBugKey") != jira_key]
+    removed_ticket = before_t != len(tickets)
+    if removed_ticket:
+        _save_tickets(tickets)
+
+    return _ok({"deleted": jira_key, "linkedTicketRemoved": removed_ticket})
+
+
+@app.route("/api/registry", methods=["DELETE"])
+@require_admin
+def clear_bugs():
+    """Clear every raised bug AND every linked bug-ticket it created — the
+    quickest way to reset the demo/registry back to a clean slate. Regular
+    (non-bug) tickets are left untouched."""
+    bug_count = len(_load(BUGS_FILE, []))
+    _save(BUGS_FILE, [])
+
+    tickets = _load_tickets()
+    before_t = len(tickets)
+    tickets = [t for t in tickets if not t.get("isBug")]
+    removed_tickets = before_t - len(tickets)
+    _save_tickets(tickets)
+
+    return _ok({"bugsCleared": bug_count, "linkedTicketsRemoved": removed_tickets})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
