@@ -406,6 +406,11 @@
 
     <!-- ticket list view -->
     <div id="ticket-list-view">
+      <div id="offline-banner" style="display:none;background:#fff4e5;border-bottom:2px solid #ff8b00;
+        padding:10px 24px;font-size:12px;font-weight:600;color:#7a4a00;display:none;align-items:center;justify-content:space-between;">
+        <span><i class="fas fa-triangle-exclamation"></i> Backend unreachable — showing local demo tickets only. Anything created elsewhere (like a raised bug) won't appear until this reconnects.</span>
+        <button class="tb-btn" style="background:#fff" onclick="loadTickets()"><i class="fas fa-sync"></i> Retry</button>
+      </div>
       <div style="padding:20px 24px;border-bottom:1px solid var(--border2);
         display:flex;align-items:center;justify-content:space-between;">
         <div style="font-size:18px;font-weight:700">All open issues</div>
@@ -836,9 +841,11 @@ async function loadTickets() {
     const data = await res.json();
     tickets = data.tickets || [];
     usingBackend = true;
+    document.getElementById('offline-banner').style.display = 'none';
   } catch (_) {
     tickets = JSON.parse(JSON.stringify(FALLBACK_TICKETS));
     usingBackend = false;
+    document.getElementById('offline-banner').style.display = 'flex';
     showToast('⚠️ Backend unreachable — showing local demo tickets only', 'info');
   }
   renderTicketList();
@@ -1103,8 +1110,9 @@ async function triggerAutomation() {
   // NOT one generic run-level bug. This is what lets the resulting linked
   // bug ticket re-run just that one failed test instead of t's whole suite.
   try {
+    const newBugTickets = [];  // collect so we can point the user at them directly
+
     if (result.failed > 0 && Array.isArray(result.failures) && result.failures.length) {
-      let raisedCount = 0;
       for (const f of result.failures) {
         const bugRes = await fetch(`${API_BASE}/api/registry/raise?username=${ME}`, {
           method: 'POST',
@@ -1117,9 +1125,11 @@ async function triggerAutomation() {
             priority:      'High'
           })
         });
-        if (bugRes.ok) raisedCount++;
+        if (bugRes.ok) {
+          const bugData = await bugRes.json();
+          if (bugData.bugTicket) newBugTickets.push(bugData.bugTicket);
+        }
       }
-      if (raisedCount) loadBugsCount();
     } else if (result.failed > 0) {
       // Fallback: failures array wasn't populated for some reason — still
       // raise something rather than silently losing the failure, but this
@@ -1136,7 +1146,21 @@ async function triggerAutomation() {
           priority:      'High'
         })
       });
-      if (bugRes.ok) loadBugsCount();
+      if (bugRes.ok) {
+        const bugData = await bugRes.json();
+        if (bugData.bugTicket) newBugTickets.push(bugData.bugTicket);
+      }
+    }
+
+    if (newBugTickets.length) {
+      loadBugsCount();
+      // CRITICAL: without this refresh, the newly created bug ticket(s) exist
+      // in the backend but never appear in this page's ticket list — leaving
+      // only the tickets that were already visible to click/run, which is
+      // exactly what makes it look like "a hardcoded ticket" ran instead of
+      // the bug you just raised.
+      await loadTickets();
+      showToast(`🐞 Bug ticket${newBugTickets.length > 1 ? 's' : ''} created: ${newBugTickets.join(', ')} — now visible in the list above`, 'success');
     }
   } catch(_) {}
 

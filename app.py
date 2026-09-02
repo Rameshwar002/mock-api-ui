@@ -1116,7 +1116,7 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
                         "delegatedTo": parent_id, "singleTest": failed_test,
                     }
                     execution_state["stage"] = "executing"
-                target_files = [os.path.join(BASE, e["file"]) for e in p_matched]
+                target_files = list(dict.fromkeys(os.path.join(BASE, e["file"]) for e in p_matched))
                 _execute_robot(ticket_id, region, env, user, target_files, test_name=failed_test)
                 return
             # Parent exists but has no real coverage to delegate to (e.g. its
@@ -1175,7 +1175,7 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
         execution_state["analysis"] = {"matchedTests": matched, "generated": generated, "note": note}
         execution_state["stage"] = "executing"
 
-    target_files = [os.path.join(BASE, e["file"]) for e in (matched + generated)]
+    target_files = list(dict.fromkeys(os.path.join(BASE, e["file"]) for e in (matched + generated)))
     _execute_robot(ticket_id, region, env, user, target_files)
 
 
