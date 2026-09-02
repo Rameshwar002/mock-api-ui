@@ -1577,7 +1577,7 @@ def check_bug():
     bugs = _load(BUGS_FILE, [])
     existing = next((b for b in bugs if b["testCaseName"] == test_name), None)
     if existing:
-        bug_ticket = _find_bug_ticket_by_key(existing["jiraKey"])
+        bug_ticket = _ensure_bug_ticket(existing)
         resp = {
             "canRaise": False, "jiraKey": existing["jiraKey"],
             "raisedBy": existing["raisedBy"],
@@ -1629,8 +1629,14 @@ def raise_bug():
             _persist_bug(sb_data.get("jiraKey", ""), test_name, error_msg,
                          env, priority, epic, suite, username, sb_data.get("status", "success"))
             is_duplicate = str(sb_data.get("status", "")).upper() == "EXISTS"
-            bug_ticket = (_find_bug_ticket_by_key(sb_data.get("jiraKey", "")) if is_duplicate
-                          else _link_bug_ticket(suite, sb_data.get("jiraKey", ""), test_name, error_msg, priority, username))
+            if is_duplicate:
+                bug_ticket = _ensure_bug_ticket({
+                    "jiraKey": sb_data.get("jiraKey", ""), "suite": suite,
+                    "testCaseName": test_name, "errorMessage": error_msg,
+                    "priority": priority, "raisedBy": username,
+                })
+            else:
+                bug_ticket = _link_bug_ticket(suite, sb_data.get("jiraKey", ""), test_name, error_msg, priority, username)
             _add_feed(username, f"raised bug {sb_data.get('jiraKey','')} — {test_name}", "bug")
             resp_data = dict(sb_data)
             if bug_ticket:
@@ -1645,7 +1651,7 @@ def raise_bug():
         (b for b in bugs if b["testCaseName"] == test_name and b["env"] == env), None
     )
     if existing:
-        bug_ticket = _find_bug_ticket_by_key(existing["jiraKey"])
+        bug_ticket = _ensure_bug_ticket(existing)
         resp = {
             "status":  "EXISTS",
             "jiraKey": existing["jiraKey"],
@@ -1667,13 +1673,43 @@ def raise_bug():
 
 def _find_bug_ticket_by_key(bug_key):
     """Find the bug ticket already linked to a given Jira bug key, if one
-    exists. Used whenever a bug turns out to be a duplicate of one already
-    raised — without this, the caller only ever gets the Jira bug key back
-    (e.g. 'QA-1001'), which was never a valid, runnable ticket ID."""
+    exists. Pure lookup — does not repair anything. Prefer
+    _ensure_bug_ticket() below in any path that needs the linked ticket to
+    actually be usable, since bugs.json and tickets.json are two separate
+    files that can drift out of sync with each other."""
     if not bug_key:
         return None
     tickets = _load_tickets()
     return next((t for t in tickets if t.get("linkedBugKey") == bug_key), None)
+
+
+def _ensure_bug_ticket(bug_record):
+    """Self-healing version of the lookup above. bugs.json (the bug
+    registry) and tickets.json (the Jira board) are two separate files —
+    they can drift out of sync (a ticket deleted by hand, a bug edited
+    directly, a partial write, etc.). Whenever we're about to tell someone
+    "here's your bug, here's the ticket to run it" — e.g. on a duplicate
+    check — we must not just trust a stale linkedBugKey; we validate the
+    ticket genuinely exists in tickets.json right now, and if it doesn't,
+    we recreate it from the bug record's own stored fields (testCaseName,
+    suite, errorMessage, priority, raisedBy) rather than silently returning
+    nothing and leaving the bug un-runnable again.
+
+    Returns the ticket dict, or None if the bug was never linkable to a
+    real parent ticket in the first place (e.g. a plain suite-based bug
+    with no ticket ID in 'suite')."""
+    if not bug_record:
+        return None
+    bug_key = bug_record.get("jiraKey")
+    existing = _find_bug_ticket_by_key(bug_key)
+    if existing:
+        return existing
+    # Missing or drifted — attempt to (re)create it from the bug's own record.
+    return _link_bug_ticket(
+        bug_record.get("suite", ""), bug_key,
+        bug_record.get("testCaseName", ""), bug_record.get("errorMessage", ""),
+        bug_record.get("priority", "High"), bug_record.get("raisedBy", "unknown"),
+    )
 
 
 def _bug_ticket_id_from_key(bug_key):
@@ -1821,6 +1857,55 @@ def clear_bugs():
     _save_tickets(tickets)
 
     return _ok({"bugsCleared": bug_count, "linkedTicketsRemoved": removed_tickets})
+
+
+@app.route("/api/registry/validate", methods=["GET"])
+def validate_registry():
+    """Read-only consistency check between bugs.json and tickets.json —
+    reports drift without fixing anything. Call POST .../repair to fix
+    what this finds."""
+    bugs    = _load(BUGS_FILE, [])
+    tickets = _load_tickets()
+    ticket_by_bugkey = {t.get("linkedBugKey"): t for t in tickets if t.get("linkedBugKey")}
+    bug_keys = {b.get("jiraKey") for b in bugs}
+
+    bugs_missing_ticket  = [b["jiraKey"] for b in bugs if b.get("jiraKey") not in ticket_by_bugkey]
+    tickets_missing_bug  = [t["id"] for t in tickets if t.get("isBug") and t.get("linkedBugKey") not in bug_keys]
+
+    return _ok({
+        "consistent": not bugs_missing_ticket and not tickets_missing_bug,
+        "bugsMissingTicket": bugs_missing_ticket,    # in bugs.json, no runnable ticket
+        "ticketsMissingBug": tickets_missing_bug,     # in tickets.json, bug record gone
+    })
+
+
+@app.route("/api/registry/repair", methods=["POST"])
+@require_admin
+def repair_registry():
+    """Bidirectional consistency repair between bugs.json and tickets.json:
+      1. Every bug in bugs.json gets a real linked ticket (created if missing).
+      2. Every bug-ticket (isBug) whose bug record no longer exists in
+         bugs.json is removed (an orphan pointing at nothing).
+    Use this to fix drift that accumulated before this validation existed,
+    or from any manual edits to the JSON files outside the API."""
+    bugs = _load(BUGS_FILE, [])
+    created = []
+    for b in bugs:
+        before = _find_bug_ticket_by_key(b.get("jiraKey"))
+        if not before:
+            healed = _ensure_bug_ticket(b)
+            if healed:
+                created.append(healed["id"])
+
+    tickets = _load_tickets()
+    bug_keys = {b.get("jiraKey") for b in bugs}
+    before_t = len(tickets)
+    tickets = [t for t in tickets if not (t.get("isBug") and t.get("linkedBugKey") not in bug_keys)]
+    removed = before_t - len(tickets)
+    if removed:
+        _save_tickets(tickets)
+
+    return _ok({"ticketsCreated": created, "orphanedTicketsRemoved": removed})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
