@@ -1055,10 +1055,10 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
     should NOT block on this. Progress is reported via execution_state,
     which the frontend polls (GET /status): stage moves
     'understanding' -> 'generating' (only if needed) -> 'executing' -> done.
-    This is what fixes runs appearing to 'hang' — before, the understand +
-    generate step ran synchronously inside the request handler, so a slow
-    local LLM call meant the client's fetch() just sat there with no
-    visible progress at all."""
+
+    ticket_id may resolve to EITHER a genuine ticket in tickets.json OR a
+    bug in bugs.json (via _find_runnable) — bugs are never written into
+    tickets.json, so this must never assume tk came from tickets.json."""
     with _state_lock:
         execution_state.update({
             "status": "running", "stage": "understanding",
@@ -1070,73 +1070,77 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
         })
     _add_feed(user, f"started {ticket_id} · {region} · {env}", "run")
 
-    tickets = _load_tickets()
-    idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
-    if idx is None:
+    tk, kind = _find_runnable(ticket_id)
+    if not tk:
         with _state_lock:
             execution_state["status"] = "completed"
             execution_state["stage"] = "completed"
             execution_state["finished_at"] = _now()
-            execution_state["failures"].append({"name": "TICKET_NOT_FOUND", "message": f"{ticket_id} not found."})
+            execution_state["failures"].append({
+                "name": "TICKET_NOT_FOUND",
+                "message": f"{ticket_id} not found in tickets.json or bugs.json.",
+            })
         return
-    tk = tickets[idx]
 
-    # ── BUG-TICKET DELEGATION ────────────────────────────────────────────
-    # If this ticket is a bug linked back to a parent ticket, don't run the
-    # full understand-and-generate pipeline from scratch — the parent was,
-    # by definition, already tested to produce this bug, so reuse its
-    # existing test case directly. Falls through to the normal flow only if
-    # the parent has no real, on-disk coverage to delegate to (e.g. it was
-    # cleaned up since), so a run never silently does nothing.
-    parent_id = tk.get("parentTicket")
-    if parent_id:
-        parent = next((t for t in tickets if t.get("id") == parent_id), None)
-        if parent:
-            p_matched, p_missing = _analyze_ticket(parent)
-            if p_matched and not p_missing:
-                failed_test = tk.get("failedTestCase")
-                if failed_test:
-                    note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
-                            f"re-running ONLY the failed test case '{failed_test}' from "
-                            f"{parent_id}'s existing suite, not the full suite.")
-                else:
-                    note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
-                            f"reusing its existing test case ({', '.join(m['name'] for m in p_matched)}) "
-                            f"instead of generating a new one. No specific failed test was recorded, "
-                            f"so the full suite runs.")
-                tk.setdefault("comments", []).append({
-                    "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
-                    "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
-                })
-                tickets[idx] = tk
-                _save_tickets(tickets)
-                with _state_lock:
-                    execution_state["analysis"] = {
-                        "matchedTests": p_matched, "generated": [], "note": note,
-                        "delegatedTo": parent_id, "singleTest": failed_test,
-                    }
-                    execution_state["stage"] = "executing"
-                target_files = list(dict.fromkeys(os.path.join(BASE, e["file"]) for e in p_matched))
-                _execute_robot(ticket_id, region, env, user, target_files, test_name=failed_test)
-                return
-            # Parent exists but has no real coverage to delegate to (e.g. its
-            # files were removed) — note this and fall through to the normal
-            # pipeline below as a safety net, rather than silently doing nothing.
-            tk.setdefault("comments", []).append({
-                "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
-                "time": "Just now", "isBot": True, "avatar": "#4f8ef7",
-                "content": (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id}, but "
-                            f"{parent_id} has no existing test coverage to reuse right now - "
-                            f"generating a fresh script for {ticket_id} instead."),
-            })
+    # ── BUG DELEGATION ──────────────────────────────────────────────────
+    # A bug never has its own script — it always delegates to its parent
+    # ticket's existing coverage. If there's no usable parent, we stop here
+    # with a clear reason rather than falling through to a "normal ticket"
+    # generate/run flow that would have nothing real to generate against
+    # (and would risk writing bug data into tickets.json at the wrong index).
+    if kind == "bug":
+        parent_id = tk.get("parentTicket")
+        parent, _ = _find_runnable(parent_id) if parent_id else (None, None)
+
+        if not parent:
+            note = (f"AutoBot: {ticket_id} has no valid parent ticket to delegate to "
+                    f"(suite was '{parent_id or '(none)'}'). Nothing to run.")
+            _save_runnable_comment(ticket_id, kind, note)
+            with _state_lock:
+                execution_state["status"] = "completed"
+                execution_state["stage"] = "completed"
+                execution_state["finished_at"] = _now()
+                execution_state["analysis"] = {"matchedTests": [], "generated": [], "note": note}
+                execution_state["failures"].append({"name": "NO_PARENT_TICKET", "message": note})
+            return
+
+        p_matched, p_missing = _analyze_ticket(parent)
+        if not p_matched or p_missing:
+            note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id}, but "
+                    f"{parent_id} has no existing test coverage yet. Run {parent_id} first, "
+                    f"then retry this bug ticket.")
+            _save_runnable_comment(ticket_id, kind, note)
+            with _state_lock:
+                execution_state["status"] = "completed"
+                execution_state["stage"] = "completed"
+                execution_state["finished_at"] = _now()
+                execution_state["analysis"] = {"matchedTests": [], "generated": [], "note": note}
+                execution_state["failures"].append({"name": "PARENT_NOT_COVERED", "message": note})
+            return
+
+        failed_test = tk.get("failedTestCase")
+        if failed_test:
+            note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
+                    f"re-running ONLY the failed test case '{failed_test}' from "
+                    f"{parent_id}'s existing suite, not the full suite.")
         else:
-            tk.setdefault("comments", []).append({
-                "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
-                "time": "Just now", "isBot": True, "avatar": "#4f8ef7",
-                "content": (f"AutoBot: {ticket_id} references parent ticket {parent_id}, but it "
-                            f"no longer exists - generating a fresh script for {ticket_id} instead."),
-            })
+            note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
+                    f"reusing its existing test case ({', '.join(m['name'] for m in p_matched)}) "
+                    f"instead of generating a new one. No specific failed test was recorded, "
+                    f"so the full suite runs.")
+        _save_runnable_comment(ticket_id, kind, note)
 
+        with _state_lock:
+            execution_state["analysis"] = {
+                "matchedTests": p_matched, "generated": [], "note": note,
+                "delegatedTo": parent_id, "singleTest": failed_test,
+            }
+            execution_state["stage"] = "executing"
+        target_files = list(dict.fromkeys(os.path.join(BASE, e["file"]) for e in p_matched))
+        _execute_robot(ticket_id, region, env, user, target_files, test_name=failed_test)
+        return
+
+    # ── NORMAL TICKET FLOW (kind == "ticket") ────────────────────────────
     matched, missing = _analyze_ticket(tk)
     if missing:
         with _state_lock:
@@ -1164,12 +1168,7 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
         note = (f"AutoBot: matched existing test case(s) - {', '.join(m['name'] for m in matched)}."
                 if matched else "AutoBot: no tags to resolve - running as-is.")
 
-    tk.setdefault("comments", []).append({
-        "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
-        "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
-    })
-    tickets[idx] = tk
-    _save_tickets(tickets)
+    _save_runnable_comment(ticket_id, kind, note)
 
     with _state_lock:
         execution_state["analysis"] = {"matchedTests": matched, "generated": generated, "note": note}
@@ -1355,10 +1354,13 @@ def save_run():
 @app.route("/api/tickets", methods=["GET"])
 def list_tickets():
     tickets = _load_tickets()
+    bugs = _load(BUGS_FILE, [])
+    virtual = [_bug_to_virtual_ticket(b) for b in bugs]
+    combined = virtual + tickets   # newest bugs first, most relevant to surface
     status  = request.args.get("status")
     if status:
-        tickets = [t for t in tickets if t.get("status", "").lower() == status.lower()]
-    return _ok({"tickets": tickets, "total": len(tickets)})
+        combined = [t for t in combined if t.get("status", "").lower() == status.lower()]
+    return _ok({"tickets": combined, "total": len(combined)})
 
 
 @app.route("/api/tickets", methods=["POST"])
@@ -1407,8 +1409,7 @@ def create_ticket():
 
 @app.route("/api/tickets/<ticket_id>", methods=["GET"])
 def get_ticket(ticket_id):
-    tickets = _load_tickets()
-    t = next((t for t in tickets if t.get("id") == ticket_id), None)
+    t, kind = _find_runnable(ticket_id)
     if not t:
         return _err(f"{ticket_id} not found.", 404)
     return _ok({"ticket": t})
@@ -1437,54 +1438,73 @@ def update_ticket(ticket_id):
 
 @app.route("/api/tickets/<ticket_id>/like", methods=["POST"])
 def toggle_like(ticket_id):
-    """Toggle the current user's like on a ticket. Idempotent per-user —
-    liking twice un-likes. Used by both jira.html and dashboard.html."""
+    """Toggle the current user's like. Idempotent per-user — liking twice
+    un-likes. Works for both a genuine ticket (tickets.json) and a bug
+    (bugs.json) — resolved via _find_runnable, written back to whichever
+    store it actually came from."""
     body = request.get_json(silent=True) or {}
     user = request.args.get("username") or body.get("user")
     if not user:
         return _err("username is required.", 400)
 
-    tickets = _load_tickets()
-    idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
-    if idx is None:
+    t, kind = _find_runnable(ticket_id)
+    if not t:
         return _err(f"{ticket_id} not found.", 404)
 
-    likes = tickets[idx].setdefault("likes", [])
-    if user in likes:
-        likes.remove(user)
-        liked = False
-    else:
-        likes.append(user)
-        liked = True
+    if kind == "ticket":
+        tickets = _load_tickets()
+        idx = next(i for i, x in enumerate(tickets) if x.get("id") == ticket_id)
+        likes = tickets[idx].setdefault("likes", [])
+        liked = user not in likes
+        likes.remove(user) if user in likes else likes.append(user)
+        _save_tickets(tickets)
+    else:  # kind == "bug"
+        bugs = _load(BUGS_FILE, [])
+        idx = next(i for i, b in enumerate(bugs)
+                   if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id)
+        likes = bugs[idx].setdefault("likes", [])
+        liked = user not in likes
+        likes.remove(user) if user in likes else likes.append(user)
+        _save(BUGS_FILE, bugs)
 
-    _save_tickets(tickets)
     return _ok({"ticketId": ticket_id, "liked": liked, "likes": likes, "count": len(likes)})
 
 
 @app.route("/api/tickets/<ticket_id>/comments", methods=["POST"])
 def add_comment(ticket_id):
-    """Append a single comment to a ticket. A lighter-weight alternative to
-    PATCHing the whole comments array — used by dashboard.html so it doesn't
-    need to hold a full copy of the ticket just to comment on it."""
+    """Append a single comment. Works for both a genuine ticket
+    (tickets.json) and a bug (bugs.json) — resolved via _find_runnable,
+    written back to whichever store it actually came from."""
     body = request.get_json(silent=True) or {}
     user = request.args.get("username") or body.get("user")
     text = (body.get("content") or "").strip()
     if not user or not text:
         return _err("user and content are required.", 400)
 
-    tickets = _load_tickets()
-    idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
-    if idx is None:
+    t, kind = _find_runnable(ticket_id)
+    if not t:
         return _err(f"{ticket_id} not found.", 404)
 
     comment = {
         "id": int(datetime.utcnow().timestamp() * 1000), "author": user,
         "time": "Just now", "content": text, "isBot": False, "avatar": "#6554c0",
     }
-    tickets[idx].setdefault("comments", []).append(comment)
-    tickets[idx]["updated"] = "Just now"
-    _save_tickets(tickets)
-    return _ok({"ticketId": ticket_id, "comment": comment, "comments": tickets[idx]["comments"]}, 201)
+    if kind == "ticket":
+        tickets = _load_tickets()
+        idx = next(i for i, x in enumerate(tickets) if x.get("id") == ticket_id)
+        tickets[idx].setdefault("comments", []).append(comment)
+        tickets[idx]["updated"] = "Just now"
+        _save_tickets(tickets)
+        all_comments = tickets[idx]["comments"]
+    else:  # kind == "bug"
+        bugs = _load(BUGS_FILE, [])
+        idx = next(i for i, b in enumerate(bugs)
+                   if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id)
+        bugs[idx].setdefault("comments", []).append(comment)
+        _save(BUGS_FILE, bugs)
+        all_comments = bugs[idx]["comments"]
+
+    return _ok({"ticketId": ticket_id, "comment": comment, "comments": all_comments}, 201)
 
 
 @app.route("/api/test-catalog", methods=["GET"])
@@ -1505,8 +1525,7 @@ def get_api_specs():
 def analyze_ticket(ticket_id):
     """Collect ticket details and decide what needs testing — no side effects.
     Used by chat.html to show its reasoning before running or generating anything."""
-    tickets = _load_tickets()
-    t = next((t for t in tickets if t.get("id") == ticket_id), None)
+    t, kind = _find_runnable(ticket_id)
     if not t:
         return _err(f"{ticket_id} not found.", 404)
 
@@ -1548,8 +1567,8 @@ def run_ticket_script(ticket_id):
     if execution_state.get("status") == "running":
         return _err("A run is already in progress.", 409)
 
-    tickets = _load_tickets()
-    if not any(t.get("id") == ticket_id for t in tickets):
+    t, kind = _find_runnable(ticket_id)
+    if not t:
         return _err(f"{ticket_id} not found.", 404)
 
     body   = request.get_json(silent=True) or {}
@@ -1577,15 +1596,15 @@ def check_bug():
     bugs = _load(BUGS_FILE, [])
     existing = next((b for b in bugs if b["testCaseName"] == test_name), None)
     if existing:
-        bug_ticket = _ensure_bug_ticket(existing)
         resp = {
             "canRaise": False, "jiraKey": existing["jiraKey"],
             "raisedBy": existing["raisedBy"],
             "message": f"A bug for '{test_name}' is already open ({existing['jiraKey']}).",
         }
-        if bug_ticket:
-            resp["bugTicket"] = bug_ticket["id"]
-            resp["message"] += f" Run it via ticket {bug_ticket['id']}."
+        if existing.get("suite"):
+            bug_id = _bug_ticket_id_from_key(existing["jiraKey"])
+            resp["bugTicket"] = bug_id
+            resp["message"] += f" Run it via ticket {bug_id}."
         return _ok(resp)
     return _ok({"canRaise": True})
 
@@ -1628,19 +1647,12 @@ def raise_bug():
             # Persist locally too for dashboard
             _persist_bug(sb_data.get("jiraKey", ""), test_name, error_msg,
                          env, priority, epic, suite, username, sb_data.get("status", "success"))
-            is_duplicate = str(sb_data.get("status", "")).upper() == "EXISTS"
-            if is_duplicate:
-                bug_ticket = _ensure_bug_ticket({
-                    "jiraKey": sb_data.get("jiraKey", ""), "suite": suite,
-                    "testCaseName": test_name, "errorMessage": error_msg,
-                    "priority": priority, "raisedBy": username,
-                })
-            else:
-                bug_ticket = _link_bug_ticket(suite, sb_data.get("jiraKey", ""), test_name, error_msg, priority, username)
             _add_feed(username, f"raised bug {sb_data.get('jiraKey','')} — {test_name}", "bug")
             resp_data = dict(sb_data)
-            if bug_ticket:
-                resp_data["bugTicket"] = bug_ticket["id"]
+            # bugTicket is only meaningful if 'suite' is a real parent ticket ID —
+            # _find_runnable resolves it dynamically from bugs.json, nothing is persisted here.
+            if suite:
+                resp_data["bugTicket"] = _bug_ticket_id_from_key(sb_data.get("jiraKey", ""))
             return _ok(resp_data)
     except Exception:
         pass  # Spring Boot not running — fall through to local logic
@@ -1651,138 +1663,127 @@ def raise_bug():
         (b for b in bugs if b["testCaseName"] == test_name and b["env"] == env), None
     )
     if existing:
-        bug_ticket = _ensure_bug_ticket(existing)
         resp = {
             "status":  "EXISTS",
             "jiraKey": existing["jiraKey"],
             "user":    existing["raisedBy"],
         }
-        if bug_ticket:
-            resp["bugTicket"] = bug_ticket["id"]
+        if existing.get("suite"):
+            resp["bugTicket"] = _bug_ticket_id_from_key(existing["jiraKey"])
         return _ok(resp)
 
     jira_key = f"QA-{1000 + len(bugs) + 1}"
     _persist_bug(jira_key, test_name, error_msg, env, priority, epic, suite, username, "success")
-    bug_ticket = _link_bug_ticket(suite, jira_key, test_name, error_msg, priority, username)
     _add_feed(username, f"raised bug {jira_key} — {test_name}", "bug")
     resp = {"status": "success", "jiraKey": jira_key, "user": username}
-    if bug_ticket:
-        resp["bugTicket"] = bug_ticket["id"]
+    if suite:
+        resp["bugTicket"] = _bug_ticket_id_from_key(jira_key)
     return _ok(resp)
 
 
-def _find_bug_ticket_by_key(bug_key):
-    """Find the bug ticket already linked to a given Jira bug key, if one
-    exists. Pure lookup — does not repair anything. Prefer
-    _ensure_bug_ticket() below in any path that needs the linked ticket to
-    actually be usable, since bugs.json and tickets.json are two separate
-    files that can drift out of sync with each other."""
-    if not bug_key:
-        return None
-    tickets = _load_tickets()
-    return next((t for t in tickets if t.get("linkedBugKey") == bug_key), None)
-
-
-def _ensure_bug_ticket(bug_record):
-    """Self-healing version of the lookup above. bugs.json (the bug
-    registry) and tickets.json (the Jira board) are two separate files —
-    they can drift out of sync (a ticket deleted by hand, a bug edited
-    directly, a partial write, etc.). Whenever we're about to tell someone
-    "here's your bug, here's the ticket to run it" — e.g. on a duplicate
-    check — we must not just trust a stale linkedBugKey; we validate the
-    ticket genuinely exists in tickets.json right now, and if it doesn't,
-    we recreate it from the bug record's own stored fields (testCaseName,
-    suite, errorMessage, priority, raisedBy) rather than silently returning
-    nothing and leaving the bug un-runnable again.
-
-    Returns the ticket dict, or None if the bug was never linkable to a
-    real parent ticket in the first place (e.g. a plain suite-based bug
-    with no ticket ID in 'suite')."""
-    if not bug_record:
-        return None
-    bug_key = bug_record.get("jiraKey")
-    existing = _find_bug_ticket_by_key(bug_key)
-    if existing:
-        return existing
-    # Missing or drifted — attempt to (re)create it from the bug's own record.
-    return _link_bug_ticket(
-        bug_record.get("suite", ""), bug_key,
-        bug_record.get("testCaseName", ""), bug_record.get("errorMessage", ""),
-        bug_record.get("priority", "High"), bug_record.get("raisedBy", "unknown"),
-    )
-
-
 def _bug_ticket_id_from_key(bug_key):
-    """Derive the linked ticket's ID directly from the bug's own key, so the
+    """Derive the runnable ticket ID directly from the bug's own key, so the
     two are always trivially traceable to each other — bug QA-1233 always
-    produces ticket BUG-1233, never an unrelated number from a separate
-    counter."""
+    resolves to ID BUG-1233, never an unrelated number from a separate
+    counter. This ID is NEVER persisted as a real ticket — it's computed
+    fresh every time from bugs.json (see _find_runnable)."""
     m = re.search(r"(\d+)\s*$", bug_key or "")
     num = m.group(1) if m else str(int(datetime.utcnow().timestamp()))[-6:]
     return f"BUG-{num}"
 
 
-def _link_bug_ticket(parent_ticket_id, bug_key, test_name, error_msg, priority, username):
-    """When a bug is raised from a ticket-based run, create a companion 'bug
-    ticket' on the Jira board linked back to the parent via parentTicket.
-    Running this bug ticket will DELEGATE to the parent's existing test
-    case instead of generating a new one from scratch (see
-    _run_ticket_pipeline) — the parent was, by definition, already tested
-    to produce this failure, so its script already covers this case.
-
-    If test_name is a genuine, specific Robot Framework test case name (not
-    a generic run-level summary like 'IT-6_AutomationRun'), it's stored as
-    failedTestCase — running this bug ticket will then target ONLY that one
-    test case within the parent's file, not the parent's entire suite.
-
-    Returns the new ticket dict, or None if there's no real parent ticket
-    to link to (suite wasn't a ticket ID — e.g. a plain suite-based run)."""
-    if not parent_ticket_id:
-        return None
-    tickets = _load_tickets()
-    parent = next((t for t in tickets if t.get("id") == parent_ticket_id), None)
-    if not parent:
-        return None  # 'suite' wasn't actually a ticket ID (a plain suite run) — nothing to link
-
-    new_id = _bug_ticket_id_from_key(bug_key)
-    # Guard against collisions: if a ticket with this exact ID already
-    # exists (e.g. this exact bug was somehow linked before), reuse it
-    # rather than creating a duplicate or clobbering it.
-    existing = next((t for t in tickets if t.get("id") == new_id), None)
-    if existing:
-        return existing
-
+def _bug_to_virtual_ticket(bug):
+    """Build a ticket-shaped VIEW of a bug record, computed fresh from
+    bugs.json every time it's needed — this is NEVER written to
+    tickets.json. bugs.json is the single source of truth for bug data;
+    tickets.json only ever holds genuine tickets. This is what makes it
+    impossible for a new bug to collide with a stale, previously-persisted
+    bug-ticket of the same ID — there's nothing to collide with, since
+    nothing is ever persisted."""
+    bug_key   = bug.get("jiraKey", "")
+    test_name = bug.get("testCaseName", "")
+    parent_id = bug.get("suite", "")
     # A generic run-level name (e.g. "IT-6_AutomationRun") isn't a real Robot
     # Framework test case we could target with --test — only trust names
     # that don't match that catch-all pattern.
     is_specific_test = bool(test_name) and not test_name.endswith("_AutomationRun")
-    failed_test_case = test_name if is_specific_test else None
-
-    scope_note = (f"Running this ticket will re-run ONLY the failed test case "
-                   f"'{failed_test_case}' from {parent_ticket_id} — not its whole suite."
-                   if failed_test_case else
-                   f"Running this ticket will reuse {parent_ticket_id}'s existing "
-                   f"test case instead of generating a new one.")
-
-    bug_ticket = {
-        "id": new_id, "title": f"Bug: {test_name}", "status": "Open",
-        "priority": priority, "urgency": priority, "impact": "Moderate / Limited",
-        "service": parent.get("service", "General"), "reporter": username, "assignee": None,
-        "desc": error_msg or f"Failure raised from a run of {parent_ticket_id}.",
-        "robotTags": parent.get("robotTags", []),
-        "reqType": "Report a system problem", "severity": priority, "labels": "auto-linked-bug",
-        "failedTestCase": failed_test_case,
-        "comments": [{
-            "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
-            "time": "Just now", "isBot": True, "avatar": "#4f8ef7",
-            "content": f"Linked to parent ticket {parent_ticket_id} (bug {bug_key}). {scope_note}",
-        }],
-        "created": "Just now", "updated": "Just now", "testResults": None,
-        "parentTicket": parent_ticket_id, "linkedBugKey": bug_key, "isBug": True,
+    return {
+        "id": _bug_ticket_id_from_key(bug_key), "title": f"Bug: {test_name}", "status": "Open",
+        "priority": bug.get("priority", "High"), "urgency": bug.get("priority", "High"),
+        "impact": "Moderate / Limited", "service": "General",
+        "reporter": bug.get("raisedBy", "unknown"), "assignee": None,
+        "desc": bug.get("errorMessage") or f"Failure raised from a run of {parent_id}.",
+        "robotTags": [], "reqType": "Report a system problem",
+        "severity": bug.get("priority", "High"), "labels": "linked-bug",
+        "failedTestCase": test_name if is_specific_test else None,
+        "comments": bug.get("comments", []), "likes": bug.get("likes", []),
+        "created": bug.get("time", ""), "updated": bug.get("time", ""), "testResults": None,
+        "parentTicket": parent_id, "linkedBugKey": bug_key, "isBug": True,
     }
-    tickets.insert(0, bug_ticket)
-    _save_tickets(tickets)
-    return bug_ticket
+
+
+def _find_runnable(ticket_id):
+    """Resolve a runnable 'ticket' by ID from EITHER store: a genuine
+    ticket in tickets.json, or a bug in bugs.json whose derived ID (see
+    _bug_ticket_id_from_key) matches. Every route that looks up a ticket by
+    ID for viewing/running/analyzing MUST go through this, not a direct
+    tickets.json lookup, or bug IDs like 'BUG-1001' will incorrectly
+    report 'not found' even though the bug is genuinely raised and runnable.
+
+    For any ID matching the BUG- pattern, bugs.json is checked FIRST. This
+    matters even after the design change that stopped persisting bugs into
+    tickets.json: a server that raised bugs under the OLD design may still
+    have stale BUG-N entries sitting in tickets.json, and a fresh bug can
+    legitimately compute to that same ID later. Without this ordering, the
+    stale ticket would be found first and silently shadow the real,
+    current bug data — exactly the bug this fixes. Genuine tickets never
+    use the BUG- prefix (_next_ticket_id defaults to IT-), so this never
+    affects a normal ticket lookup.
+
+    Returns (ticket_dict, kind) where kind is "ticket" or "bug", or
+    (None, None) if the ID exists in neither store."""
+    tickets = _load_tickets()
+    bugs = _load(BUGS_FILE, [])
+
+    if ticket_id.upper().startswith("BUG-"):
+        for b in bugs:
+            if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id:
+                return _bug_to_virtual_ticket(b), "bug"
+        t = next((t for t in tickets if t.get("id") == ticket_id), None)
+        return (t, "ticket") if t else (None, None)
+
+    t = next((t for t in tickets if t.get("id") == ticket_id), None)
+    if t:
+        return t, "ticket"
+    for b in bugs:
+        if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id:
+            return _bug_to_virtual_ticket(b), "bug"
+    return None, None
+
+
+def _save_runnable_comment(ticket_id, kind, note):
+    """Persist an AutoBot comment back to wherever this thing actually
+    lives — the ticket's own comments in tickets.json for a real ticket, or
+    the bug record's comments in bugs.json for a bug. Bugs never get a
+    comment written into tickets.json under this design."""
+    comment = {
+        "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
+        "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
+    }
+    if kind == "ticket":
+        tickets = _load_tickets()
+        idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
+        if idx is not None:
+            tickets[idx].setdefault("comments", []).append(comment)
+            tickets[idx]["updated"] = "Just now"
+            _save_tickets(tickets)
+    elif kind == "bug":
+        bugs = _load(BUGS_FILE, [])
+        idx = next((i for i, b in enumerate(bugs)
+                    if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id), None)
+        if idx is not None:
+            bugs[idx].setdefault("comments", []).append(comment)
+            _save(BUGS_FILE, bugs)
 
 
 def _persist_bug(jira_key, test_name, error_msg, env, priority, epic, suite, username, status):
@@ -1802,6 +1803,8 @@ def _persist_bug(jira_key, test_name, error_msg, env, priority, epic, suite, use
         "status":       status,
         "time":         datetime.now().strftime("%I:%M %p"),
         "raisedAt":     _now(),
+        "comments":     [],
+        "likes":        [],
     })
     _save(BUGS_FILE, bugs)
 
@@ -1821,91 +1824,60 @@ def list_bugs():
 @app.route("/api/registry/<jira_key>", methods=["DELETE"])
 @require_admin
 def delete_bug(jira_key):
-    """Delete a single raised bug AND its linked runnable ticket (if any) —
-    without this, deleting only the bug leaves an orphaned BUG-N ticket
-    behind that still points at a bug that no longer exists."""
+    """Delete a single raised bug. Under the current design bugs are never
+    persisted as tickets, so there's nothing else to clean up — deleting
+    from bugs.json alone is enough; the bug's computed ticket ID (e.g.
+    BUG-1001) simply stops resolving via _find_runnable immediately."""
     bugs   = _load(BUGS_FILE, [])
     before = len(bugs)
     bugs   = [b for b in bugs if b.get("jiraKey") != jira_key]
     if len(bugs) == before:
         return _err(f"{jira_key} not found.", 404)
     _save(BUGS_FILE, bugs)
-
-    tickets = _load_tickets()
-    before_t = len(tickets)
-    tickets = [t for t in tickets if t.get("linkedBugKey") != jira_key]
-    removed_ticket = before_t != len(tickets)
-    if removed_ticket:
-        _save_tickets(tickets)
-
-    return _ok({"deleted": jira_key, "linkedTicketRemoved": removed_ticket})
+    return _ok({"deleted": jira_key})
 
 
 @app.route("/api/registry", methods=["DELETE"])
 @require_admin
 def clear_bugs():
-    """Clear every raised bug AND every linked bug-ticket it created — the
-    quickest way to reset the demo/registry back to a clean slate. Regular
-    (non-bug) tickets are left untouched."""
+    """Clear every raised bug — the quickest way to reset the registry back
+    to a clean slate. Tickets are never touched; bugs live only in
+    bugs.json."""
     bug_count = len(_load(BUGS_FILE, []))
     _save(BUGS_FILE, [])
-
-    tickets = _load_tickets()
-    before_t = len(tickets)
-    tickets = [t for t in tickets if not t.get("isBug")]
-    removed_tickets = before_t - len(tickets)
-    _save_tickets(tickets)
-
-    return _ok({"bugsCleared": bug_count, "linkedTicketsRemoved": removed_tickets})
+    return _ok({"bugsCleared": bug_count})
 
 
 @app.route("/api/registry/validate", methods=["GET"])
 def validate_registry():
-    """Read-only consistency check between bugs.json and tickets.json —
-    reports drift without fixing anything. Call POST .../repair to fix
-    what this finds."""
-    bugs    = _load(BUGS_FILE, [])
+    """Read-only check for leftover 'isBug' tickets in tickets.json — these
+    can only exist from the OLD design (before bugs were made virtual,
+    resolved on the fly from bugs.json instead of persisted). New code
+    never creates them. Call POST .../repair to remove what this finds."""
     tickets = _load_tickets()
-    ticket_by_bugkey = {t.get("linkedBugKey"): t for t in tickets if t.get("linkedBugKey")}
-    bug_keys = {b.get("jiraKey") for b in bugs}
-
-    bugs_missing_ticket  = [b["jiraKey"] for b in bugs if b.get("jiraKey") not in ticket_by_bugkey]
-    tickets_missing_bug  = [t["id"] for t in tickets if t.get("isBug") and t.get("linkedBugKey") not in bug_keys]
-
+    legacy_bug_tickets = [t["id"] for t in tickets if t.get("isBug")]
     return _ok({
-        "consistent": not bugs_missing_ticket and not tickets_missing_bug,
-        "bugsMissingTicket": bugs_missing_ticket,    # in bugs.json, no runnable ticket
-        "ticketsMissingBug": tickets_missing_bug,     # in tickets.json, bug record gone
+        "consistent": not legacy_bug_tickets,
+        "legacyBugTicketsFound": legacy_bug_tickets,
     })
 
 
 @app.route("/api/registry/repair", methods=["POST"])
 @require_admin
 def repair_registry():
-    """Bidirectional consistency repair between bugs.json and tickets.json:
-      1. Every bug in bugs.json gets a real linked ticket (created if missing).
-      2. Every bug-ticket (isBug) whose bug record no longer exists in
-         bugs.json is removed (an orphan pointing at nothing).
-    Use this to fix drift that accumulated before this validation existed,
-    or from any manual edits to the JSON files outside the API."""
-    bugs = _load(BUGS_FILE, [])
-    created = []
-    for b in bugs:
-        before = _find_bug_ticket_by_key(b.get("jiraKey"))
-        if not before:
-            healed = _ensure_bug_ticket(b)
-            if healed:
-                created.append(healed["id"])
-
+    """Remove any leftover 'isBug' tickets from tickets.json — a one-time
+    migration cleanup for servers that raised bugs before this design
+    change (when a bug ticket was persisted directly into tickets.json,
+    which could then go stale/collide with a later bug of the same
+    computed ID). New bugs are never written here, so this only ever needs
+    to run once per server to clean up old data."""
     tickets = _load_tickets()
-    bug_keys = {b.get("jiraKey") for b in bugs}
-    before_t = len(tickets)
-    tickets = [t for t in tickets if not (t.get("isBug") and t.get("linkedBugKey") not in bug_keys)]
-    removed = before_t - len(tickets)
+    before = len(tickets)
+    tickets = [t for t in tickets if not t.get("isBug")]
+    removed = before - len(tickets)
     if removed:
         _save_tickets(tickets)
-
-    return _ok({"ticketsCreated": created, "orphanedTicketsRemoved": removed})
+    return _ok({"legacyBugTicketsRemoved": removed})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
