@@ -1,3 +1,56 @@
+@app.route("/api/v1/vehicle/<vin>/remote/stop", methods=["POST"])
+def remote_stop(vin):
+    """Step 1 of the flow for stop — same pattern as start."""
+
+    if _needs_auth():
+        return jsonify(error="missing or invalid Authorization header"), 401
+
+    state = _vehicle_or_404(vin)
+
+    if state is None:
+        return jsonify(error=f"vehicle {vin} not found"), 404
+
+    if not state["engineOn"]:
+        return jsonify(error="engine is not running"), 409
+
+    # Get request body
+    body = request.get_json(silent=True)
+
+    # Convert string JSON to dictionary
+    if isinstance(body, str):
+        try:
+            import json
+            body = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            body = {}
+
+    # Make sure body is a dictionary
+    if not isinstance(body, dict):
+        body = {}
+
+    simulate_failure = bool(body.get("simulateFailure", False))
+
+    cmd = _new_command(vin, "ENGINE_STOP")
+
+    threading.Thread(
+        target=_process_command_async,
+        args=(
+            cmd["commandId"],
+            vin,
+            "ENGINE_STOP",
+            simulate_failure
+        ),
+        daemon=True,
+    ).start()
+
+    return jsonify(
+        commandId=cmd["commandId"],
+        vin=vin,
+        type="ENGINE_STOP",
+        status="PENDING",
+        requestedAt=cmd["requestedAt"]
+    ), 202
+
 """
 mock_service.py — a single mock microservice standing in for every
 "application" listed in config/api_specs.json (Auth, Payment, User Profile,
