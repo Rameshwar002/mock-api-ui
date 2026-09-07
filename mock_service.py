@@ -23,6 +23,9 @@ generates have something real to assert against:
 """
 from flask import Flask, request, jsonify
 import uuid
+import threading
+import time
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -137,16 +140,90 @@ def reset_state():
     realistic), which also means re-running the same positive test twice in
     a row will fail the second time unless state is reset in between. Call
     this before a repeat run for reproducibility."""
-    global _vehicle_state
+    global _vehicle_state, _commands
     _vehicle_state = {
         vin: {"locked": True, "engineOn": False, "doorsOpen": False, "activeServices": ["REMOTE_START"]}
         for vin in _KNOWN_VINS
     }
+    _commands = {}
     return jsonify(status="ok", reset=list(_KNOWN_VINS)), 200
+
+
+
+# ── REMOTE ENGINE START/STOP — real asynchronous command flow ───────────────
+# This models how a real connected-vehicle system actually works: the cloud
+# does NOT talk to the vehicle synchronously inside the HTTP request. It:
+#   1. Validates the request immediately (auth, PIN, vehicle preconditions)
+#      and rejects it right away if anything's wrong (400/401/403/404/409).
+#   2. If valid, creates a Command record (status PENDING) and returns
+#      immediately (202 Accepted) with a commandId — it has NOT yet reached
+#      the vehicle.
+#   3. In the background, the command is "dispatched" over the simulated
+#      cellular channel to the vehicle (status -> DISPATCHED), the vehicle
+#      "executes" it, and acks back (status -> COMPLETED or FAILED). Only at
+#      COMPLETED does the vehicle's actual engine state change.
+#   4. The mobile app polls GET .../remote/commands/{commandId} until the
+#      status is terminal (COMPLETED, FAILED, or CANCELLED).
+#
+# State machine:
+#   PENDING --(dispatch, ~1s)--> DISPATCHED --(vehicle executes, ~1.5s)--> COMPLETED
+#                                                                      \--> FAILED
+#   PENDING --(user cancels)--> CANCELLED   (cancellation is only allowed
+#                                             before dispatch — once a real
+#                                             vehicle has been sent the
+#                                             command, it can't be recalled)
+_commands = {}  # commandId -> command record (shared in-memory "command log")
+
+_DISPATCH_DELAY_S = 1.0   # simulated cellular network handshake time
+_EXECUTE_DELAY_S  = 1.5   # simulated time for the vehicle to physically act
+
+
+def _new_command(vin, cmd_type):
+    cmd_id = str(uuid.uuid4())
+    _commands[cmd_id] = {
+        "commandId": cmd_id, "vin": vin, "type": cmd_type, "status": "PENDING",
+        "requestedAt": datetime.utcnow().isoformat() + "Z",
+        "dispatchedAt": None, "completedAt": None, "failureReason": None,
+    }
+    return _commands[cmd_id]
+
+
+def _process_command_async(command_id, vin, cmd_type, simulate_failure):
+    """Runs in a background thread — simulates the real round trip: cloud
+    dispatches to the vehicle over cellular, the vehicle executes the
+    physical action, then acks back. This is deliberately NOT instant, so a
+    test polling the status endpoint actually observes PENDING ->
+    DISPATCHED -> a terminal state, the same way a real mobile app would."""
+    time.sleep(_DISPATCH_DELAY_S)
+    cmd = _commands.get(command_id)
+    if not cmd or cmd["status"] == "CANCELLED":
+        return  # cancelled before we even reached the vehicle
+    cmd["status"] = "DISPATCHED"
+    cmd["dispatchedAt"] = datetime.utcnow().isoformat() + "Z"
+
+    time.sleep(_EXECUTE_DELAY_S)
+    cmd = _commands.get(command_id)
+    if not cmd or cmd["status"] == "CANCELLED":
+        return
+
+    if simulate_failure:
+        cmd["status"] = "FAILED"
+        cmd["failureReason"] = "Vehicle did not acknowledge the command (simulated failure)"
+    else:
+        cmd["status"] = "COMPLETED"
+        state = _vehicle_state.get(vin)
+        if state is not None:
+            if cmd_type == "ENGINE_START":
+                state["engineOn"] = True
+            elif cmd_type == "ENGINE_STOP":
+                state["engineOn"] = False
+    cmd["completedAt"] = datetime.utcnow().isoformat() + "Z"
 
 
 @app.route("/api/v1/vehicle/<vin>/remote/start", methods=["POST"])
 def remote_start(vin):
+    """Step 1 of the flow: mobile app submits a start request. Validated
+    and accepted immediately (202) — the vehicle hasn't received it yet."""
     if _needs_auth():
         return jsonify(error="missing or invalid Authorization header"), 401
     state = _vehicle_or_404(vin)
@@ -164,13 +241,20 @@ def remote_start(vin):
         return jsonify(error="engine is already running"), 409
     if state["doorsOpen"]:
         return jsonify(error="cannot remote start while a door is open"), 409
-    state["engineOn"] = True
-    return jsonify(commandId=str(uuid.uuid4()), status="STARTED",
-                    durationMinutes=body.get("duration_minutes", 10)), 200
+
+    cmd = _new_command(vin, "ENGINE_START")
+    threading.Thread(
+        target=_process_command_async,
+        args=(cmd["commandId"], vin, "ENGINE_START", bool(body.get("simulateFailure"))),
+        daemon=True,
+    ).start()
+    return jsonify(commandId=cmd["commandId"], vin=vin, type="ENGINE_START",
+                    status="PENDING", requestedAt=cmd["requestedAt"]), 202
 
 
 @app.route("/api/v1/vehicle/<vin>/remote/stop", methods=["POST"])
 def remote_stop(vin):
+    """Step 1 of the flow for stop — same pattern as start."""
     if _needs_auth():
         return jsonify(error="missing or invalid Authorization header"), 401
     state = _vehicle_or_404(vin)
@@ -178,8 +262,57 @@ def remote_stop(vin):
         return jsonify(error=f"vehicle {vin} not found"), 404
     if not state["engineOn"]:
         return jsonify(error="engine is not running"), 409
-    state["engineOn"] = False
-    return jsonify(commandId=str(uuid.uuid4()), status="STOPPED"), 200
+
+    body = request.get_json(silent=True) or {}
+    cmd = _new_command(vin, "ENGINE_STOP")
+    threading.Thread(
+        target=_process_command_async,
+        args=(cmd["commandId"], vin, "ENGINE_STOP", bool(body.get("simulateFailure"))),
+        daemon=True,
+    ).start()
+    return jsonify(commandId=cmd["commandId"], vin=vin, type="ENGINE_STOP",
+                    status="PENDING", requestedAt=cmd["requestedAt"]), 202
+
+
+@app.route("/api/v1/vehicle/<vin>/remote/commands/<command_id>", methods=["GET"])
+def get_command_status(vin, command_id):
+    """Step 2 of the flow: mobile app polls this repeatedly until status is
+    terminal (COMPLETED, FAILED, or CANCELLED)."""
+    if _needs_auth():
+        return jsonify(error="missing or invalid Authorization header"), 401
+    cmd = _commands.get(command_id)
+    if not cmd or cmd["vin"] != vin:
+        return jsonify(error=f"command {command_id} not found for vehicle {vin}"), 404
+    return jsonify(**cmd), 200
+
+
+@app.route("/api/v1/vehicle/<vin>/remote/commands", methods=["GET"])
+def list_commands(vin):
+    """Command history for a vehicle — useful for audit/debugging, and for
+    a test to find a commandId without having captured it from the submit
+    response."""
+    if _needs_auth():
+        return jsonify(error="missing or invalid Authorization header"), 401
+    if vin not in _KNOWN_VINS:
+        return jsonify(error=f"vehicle {vin} not found"), 404
+    cmds = [c for c in _commands.values() if c["vin"] == vin]
+    return jsonify(vin=vin, commands=cmds, total=len(cmds)), 200
+
+
+@app.route("/api/v1/vehicle/<vin>/remote/commands/<command_id>", methods=["DELETE"])
+def cancel_command(vin, command_id):
+    """Cancel a command — only while it's still PENDING. Once dispatched to
+    the (simulated) vehicle, it can no longer be recalled, matching how a
+    real cellular-connected vehicle command would behave."""
+    if _needs_auth():
+        return jsonify(error="missing or invalid Authorization header"), 401
+    cmd = _commands.get(command_id)
+    if not cmd or cmd["vin"] != vin:
+        return jsonify(error=f"command {command_id} not found for vehicle {vin}"), 404
+    if cmd["status"] != "PENDING":
+        return jsonify(error=f"cannot cancel a command in status {cmd['status']}"), 409
+    cmd["status"] = "CANCELLED"
+    return jsonify(commandId=command_id, status="CANCELLED"), 200
 
 
 @app.route("/api/v1/vehicle/<vin>/remote/lock", methods=["POST"])
