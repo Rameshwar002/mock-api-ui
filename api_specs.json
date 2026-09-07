@@ -1,0 +1,964 @@
+{
+    "applications": [
+        {
+            "name": "Auth Service",
+            "tags": [
+                "auth",
+                "login"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/auth/login",
+                    "method": "POST",
+                    "tags": [
+                        "login",
+                        "auth"
+                    ],
+                    "description": "Authenticate a user and return a session token",
+                    "requires_auth": false,
+                    "request_schema": [
+                        {
+                            "field": "username",
+                            "type": "string",
+                            "required": true,
+                            "example": "demo"
+                        },
+                        {
+                            "field": "password",
+                            "type": "string",
+                            "required": true,
+                            "example": "demo123"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "token",
+                            "type": "string"
+                        },
+                        {
+                            "field": "expires_in",
+                            "type": "integer"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "username or password missing"
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "password is literally 'wrong'",
+                            "payload_patch": {
+                                "password": "wrong"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/auth/token/refresh",
+                    "method": "POST",
+                    "tags": [
+                        "auth"
+                    ],
+                    "description": "Refresh an expired auth token",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "refresh_token",
+                            "type": "string",
+                            "required": true,
+                            "example": "mock-refresh-token-abc"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "token",
+                            "type": "string"
+                        },
+                        {
+                            "field": "expires_in",
+                            "type": "integer"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "refresh_token missing"
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Payment",
+            "tags": [
+                "payment",
+                "checkout"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/payments/charge",
+                    "method": "POST",
+                    "tags": [
+                        "payment"
+                    ],
+                    "description": "Charge a payment method",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "amount",
+                            "type": "number",
+                            "required": true,
+                            "example": 49.99
+                        },
+                        {
+                            "field": "payment_method_id",
+                            "type": "string",
+                            "required": true,
+                            "example": "pm_mock_123"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "charge_id",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        },
+                        {
+                            "field": "amount",
+                            "type": "number"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "amount or payment_method_id missing"
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/checkout/session",
+                    "method": "POST",
+                    "tags": [
+                        "checkout"
+                    ],
+                    "description": "Create a checkout session",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "cart_id",
+                            "type": "string",
+                            "required": true,
+                            "example": "cart_mock_123"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "session_id",
+                            "type": "string"
+                        },
+                        {
+                            "field": "checkout_url",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "cart_id missing"
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "User Profile",
+            "tags": [
+                "profile",
+                "user"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/users/1",
+                    "method": "PUT",
+                    "tags": [
+                        "profile",
+                        "api"
+                    ],
+                    "description": "Update a user's profile. Mock only recognizes ids 1, 2, 3, demo-user.",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "email",
+                            "type": "string",
+                            "required": false,
+                            "example": "user@example.com",
+                            "notes": "must contain '@' if provided"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "id",
+                            "type": "string"
+                        },
+                        {
+                            "field": "email",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "email present but missing '@'",
+                            "payload_patch": {
+                                "email": "not-an-email"
+                            }
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown user id",
+                            "path_override": "/api/v1/users/does-not-exist"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Search",
+            "tags": [
+                "search",
+                "pagination"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/search",
+                    "method": "GET",
+                    "tags": [
+                        "search",
+                        "pagination"
+                    ],
+                    "description": "Search with pagination",
+                    "requires_auth": false,
+                    "request_schema": [
+                        {
+                            "field": "q",
+                            "type": "string",
+                            "required": true,
+                            "example": "test",
+                            "in": "query"
+                        },
+                        {
+                            "field": "page",
+                            "type": "integer",
+                            "required": false,
+                            "example": 1,
+                            "in": "query"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "query",
+                            "type": "string"
+                        },
+                        {
+                            "field": "page",
+                            "type": "integer"
+                        },
+                        {
+                            "field": "results",
+                            "type": "array"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "q missing",
+                            "path_override": "/api/v1/search"
+                        },
+                        {
+                            "status": 400,
+                            "trigger": "page not a positive integer",
+                            "path_override": "/api/v1/search?q=test&page=0"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Database",
+            "tags": [
+                "database"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/health/db",
+                    "method": "GET",
+                    "tags": [
+                        "database"
+                    ],
+                    "description": "Check DB health/collation",
+                    "requires_auth": false,
+                    "request_schema": [],
+                    "success_response": [
+                        {
+                            "field": "status",
+                            "type": "string"
+                        },
+                        {
+                            "field": "collation",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": []
+                }
+            ]
+        },
+        {
+            "name": "Connected Vehicle Services",
+            "tags": [
+                "vehicle",
+                "remote",
+                "telematics",
+                "ccs",
+                "cvs"
+            ],
+            "base_urls": {
+                "US": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "EU": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                },
+                "APAC": {
+                    "DEV": "http://localhost:9000",
+                    "INT": "http://localhost:9000",
+                    "PROD": "http://localhost:9000"
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/start",
+                    "method": "POST",
+                    "tags": [
+                        "remote_start",
+                        "remote"
+                    ],
+                    "description": "Step 1 of the async remote-start flow: mobile app submits a start request. Validated immediately (auth, PIN, vehicle preconditions) and if valid, ACCEPTED (202) with a commandId \u2014 the vehicle has NOT executed it yet. The actual engine start happens in the background; poll GET .../remote/commands/{commandId} for real completion. Rejects immediately (409) if the engine's already running, a door is open, or the Remote Start service isn't active on this vehicle.",
+                    "requires_auth": true,
+                    "success_status": 202,
+                    "request_schema": [
+                        {
+                            "field": "pin",
+                            "type": "string",
+                            "required": true,
+                            "example": "1234"
+                        },
+                        {
+                            "field": "duration_minutes",
+                            "type": "integer",
+                            "required": false,
+                            "example": 10
+                        },
+                        {
+                            "field": "simulateFailure",
+                            "type": "boolean",
+                            "required": false,
+                            "example": false,
+                            "notes": "test hook: forces the background dispatch to end in FAILED instead of COMPLETED"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "commandId",
+                            "type": "string"
+                        },
+                        {
+                            "field": "vin",
+                            "type": "string"
+                        },
+                        {
+                            "field": "type",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        },
+                        {
+                            "field": "requestedAt",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "pin missing",
+                            "payload_patch": {
+                                "pin": null
+                            }
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 403,
+                            "trigger": "incorrect PIN",
+                            "payload_patch": {
+                                "pin": "0000"
+                            }
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown VIN",
+                            "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/start"
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/stop",
+                    "method": "POST",
+                    "tags": [
+                        "remote_stop",
+                        "remote"
+                    ],
+                    "description": "Step 1 of the async remote-stop flow \u2014 same pattern as remote_start: immediate 202 ACCEPTED with a commandId, actual engine stop happens in the background. Poll GET .../remote/commands/{commandId} for completion. Rejects immediately (409) if the engine isn't running.",
+                    "requires_auth": true,
+                    "success_status": 202,
+                    "request_schema": [
+                        {
+                            "field": "simulateFailure",
+                            "type": "boolean",
+                            "required": false,
+                            "example": false,
+                            "notes": "test hook: forces the background dispatch to end in FAILED instead of COMPLETED"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "commandId",
+                            "type": "string"
+                        },
+                        {
+                            "field": "vin",
+                            "type": "string"
+                        },
+                        {
+                            "field": "type",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        },
+                        {
+                            "field": "requestedAt",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown VIN",
+                            "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/stop"
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/commands/REPLACE_WITH_COMMAND_ID",
+                    "method": "GET",
+                    "tags": [
+                        "remote_command_status"
+                    ],
+                    "description": "Step 2 of the async flow: poll this until status is terminal (COMPLETED, FAILED, or CANCELLED). Status transitions PENDING -> DISPATCHED -> COMPLETED/FAILED over roughly 2.5 seconds in the mock. NOTE: this endpoint requires a real commandId from a prior start/stop submission \u2014 it cannot be tested standalone with a fixed example path the way other endpoints can; see the hand-written full-flow test (tests/examples/remote_start_full_flow.robot) for the chained pattern.",
+                    "requires_auth": true,
+                    "request_schema": [],
+                    "success_response": [
+                        {
+                            "field": "commandId",
+                            "type": "string"
+                        },
+                        {
+                            "field": "vin",
+                            "type": "string"
+                        },
+                        {
+                            "field": "type",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        },
+                        {
+                            "field": "requestedAt",
+                            "type": "string"
+                        },
+                        {
+                            "field": "dispatchedAt",
+                            "type": "string"
+                        },
+                        {
+                            "field": "completedAt",
+                            "type": "string"
+                        },
+                        {
+                            "field": "failureReason",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/commands/REPLACE_WITH_COMMAND_ID",
+                    "method": "DELETE",
+                    "tags": [
+                        "remote_command_cancel"
+                    ],
+                    "description": "Cancel a command while it's still PENDING (before it reaches the vehicle). Fails with 409 once dispatched \u2014 a real vehicle can't have a command recalled after it's been sent. Same standalone-testing caveat as remote_command_status: requires a real commandId.",
+                    "requires_auth": true,
+                    "request_schema": [],
+                    "success_response": [
+                        {
+                            "field": "commandId",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/lock",
+                    "method": "POST",
+                    "tags": [
+                        "remote_lock",
+                        "remote"
+                    ],
+                    "description": "Remotely lock the vehicle's doors. Fails with 409 if a door is currently open.",
+                    "requires_auth": true,
+                    "request_schema": [],
+                    "success_response": [
+                        {
+                            "field": "commandId",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown VIN",
+                            "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/lock"
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/unlock",
+                    "method": "POST",
+                    "tags": [
+                        "remote_unlock",
+                        "remote"
+                    ],
+                    "description": "Remotely unlock the vehicle's doors. Requires the owner's security PIN.",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "pin",
+                            "type": "string",
+                            "required": true,
+                            "example": "1234"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "commandId",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "pin missing",
+                            "payload_patch": {
+                                "pin": null
+                            }
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 403,
+                            "trigger": "incorrect PIN",
+                            "payload_patch": {
+                                "pin": "0000"
+                            }
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown VIN",
+                            "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/unlock"
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/locate",
+                    "method": "POST",
+                    "tags": [
+                        "remote_locate",
+                        "remote"
+                    ],
+                    "description": "'Find my vehicle' \u2014 flash the lights and/or sound the horn to help locate it.",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "mode",
+                            "type": "string",
+                            "required": false,
+                            "example": "lights_and_horn",
+                            "notes": "one of: lights, horn, lights_and_horn"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "commandId",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        },
+                        {
+                            "field": "mode",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "mode is not one of the allowed values",
+                            "payload_patch": {
+                                "mode": "siren"
+                            }
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown VIN",
+                            "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/locate"
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/status",
+                    "method": "GET",
+                    "tags": [
+                        "vehicle_status",
+                        "vehicle"
+                    ],
+                    "description": "Get the vehicle's current status: lock state, engine state, door state, active services, fuel level, and odometer.",
+                    "requires_auth": true,
+                    "request_schema": [],
+                    "success_response": [
+                        {
+                            "field": "vin",
+                            "type": "string"
+                        },
+                        {
+                            "field": "locked",
+                            "type": "boolean"
+                        },
+                        {
+                            "field": "engineOn",
+                            "type": "boolean"
+                        },
+                        {
+                            "field": "doorsOpen",
+                            "type": "boolean"
+                        },
+                        {
+                            "field": "activeServices",
+                            "type": "array"
+                        },
+                        {
+                            "field": "fuelLevelPct",
+                            "type": "integer"
+                        },
+                        {
+                            "field": "odometerMiles",
+                            "type": "integer"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown VIN",
+                            "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/status"
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/services/1HGCM82633A004352/activate",
+                    "method": "POST",
+                    "tags": [
+                        "service_activate",
+                        "vehicle"
+                    ],
+                    "description": "Activate a subscription service on the vehicle (e.g. Remote Start, WiFi Hotspot, Stolen Vehicle Locator, Remote Diagnostics). Fails with 409 if the service is already active.",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "serviceCode",
+                            "type": "string",
+                            "required": true,
+                            "example": "WIFI_HOTSPOT",
+                            "notes": "one of: REMOTE_START, WIFI_HOTSPOT, STOLEN_VEHICLE_LOCATOR, REMOTE_DIAGNOSTICS"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "activationId",
+                            "type": "string"
+                        },
+                        {
+                            "field": "serviceCode",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "serviceCode missing",
+                            "payload_patch": {
+                                "serviceCode": null
+                            }
+                        },
+                        {
+                            "status": 400,
+                            "trigger": "unknown serviceCode",
+                            "payload_patch": {
+                                "serviceCode": "NOT_A_REAL_SERVICE"
+                            }
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown VIN",
+                            "path_override": "/api/v1/services/UNKNOWN-VIN-000/activate"
+                        }
+                    ]
+                },
+                {
+                    "path": "/api/v1/services/1HGCM82633A004352/deactivate",
+                    "method": "POST",
+                    "tags": [
+                        "service_deactivate",
+                        "vehicle"
+                    ],
+                    "description": "Deactivate a subscription service on the vehicle. Fails with 409 if the service isn't currently active.",
+                    "requires_auth": true,
+                    "request_schema": [
+                        {
+                            "field": "serviceCode",
+                            "type": "string",
+                            "required": true,
+                            "example": "REMOTE_START"
+                        }
+                    ],
+                    "success_response": [
+                        {
+                            "field": "serviceCode",
+                            "type": "string"
+                        },
+                        {
+                            "field": "status",
+                            "type": "string"
+                        }
+                    ],
+                    "error_cases": [
+                        {
+                            "status": 400,
+                            "trigger": "serviceCode missing",
+                            "payload_patch": {
+                                "serviceCode": null
+                            }
+                        },
+                        {
+                            "status": 401,
+                            "trigger": "missing or invalid Authorization header",
+                            "no_auth": true
+                        },
+                        {
+                            "status": 404,
+                            "trigger": "unknown VIN",
+                            "path_override": "/api/v1/services/UNKNOWN-VIN-000/deactivate"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
