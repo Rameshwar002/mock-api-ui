@@ -305,6 +305,210 @@ _SEED_API_SPECS = {
                 },
             ],
         },
+        {
+            "name": "Connected Vehicle Services", "tags": ["vehicle", "remote", "telematics", "ccs", "cvs"],
+            "base_urls": {
+                "US":   {"DEV": _MOCK_URL, "INT": _MOCK_URL, "PROD": _MOCK_URL},
+                "EU":   {"DEV": _MOCK_URL, "INT": _MOCK_URL, "PROD": _MOCK_URL},
+                "APAC": {"DEV": _MOCK_URL, "INT": _MOCK_URL, "PROD": _MOCK_URL},
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/start", "method": "POST",
+                    "tags": ["remote_start", "remote"],
+                    "description": "Step 1 of the async remote-start flow: mobile app submits a start "
+                                    "request. Validated immediately (auth, PIN, vehicle preconditions) and "
+                                    "if valid, ACCEPTED (202) with a commandId — the vehicle has NOT executed "
+                                    "it yet. The actual engine start happens in the background; poll "
+                                    "GET .../remote/commands/{commandId} for real completion. Rejects "
+                                    "immediately (409) if the engine's already running, a door is open, or "
+                                    "the Remote Start service isn't active on this vehicle.",
+                    "requires_auth": True, "success_status": 202,
+                    "request_schema": [
+                        {"field": "pin", "type": "string", "required": True, "example": "1234"},
+                        {"field": "duration_minutes", "type": "integer", "required": False, "example": 10},
+                        {"field": "simulateFailure", "type": "boolean", "required": False, "example": False,
+                         "notes": "test hook: forces the background dispatch to end in FAILED instead of COMPLETED"},
+                    ],
+                    "success_response": [
+                        {"field": "commandId", "type": "string"}, {"field": "vin", "type": "string"},
+                        {"field": "type", "type": "string"}, {"field": "status", "type": "string"},
+                        {"field": "requestedAt", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 400, "trigger": "pin missing", "payload_patch": {"pin": None}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 403, "trigger": "incorrect PIN", "payload_patch": {"pin": "0000"}},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/start"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/stop", "method": "POST",
+                    "tags": ["remote_stop", "remote"],
+                    "description": "Step 1 of the async remote-stop flow — same pattern as remote_start: "
+                                    "immediate 202 ACCEPTED with a commandId, actual engine stop happens in "
+                                    "the background. Poll GET .../remote/commands/{commandId} for completion. "
+                                    "Rejects immediately (409) if the engine isn't running.",
+                    "requires_auth": True, "success_status": 202,
+                    "request_schema": [
+                        {"field": "simulateFailure", "type": "boolean", "required": False, "example": False,
+                         "notes": "test hook: forces the background dispatch to end in FAILED instead of COMPLETED"},
+                    ],
+                    "success_response": [
+                        {"field": "commandId", "type": "string"}, {"field": "vin", "type": "string"},
+                        {"field": "type", "type": "string"}, {"field": "status", "type": "string"},
+                        {"field": "requestedAt", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/stop"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/commands/REPLACE_WITH_COMMAND_ID",
+                    "method": "GET", "tags": ["remote_command_status"],
+                    "description": "Step 2 of the async flow: poll this until status is terminal "
+                                    "(COMPLETED, FAILED, or CANCELLED). Status transitions "
+                                    "PENDING -> DISPATCHED -> COMPLETED/FAILED over roughly 2.5 seconds in "
+                                    "the mock. NOTE: this endpoint requires a real commandId from a prior "
+                                    "start/stop submission — it cannot be tested standalone with a fixed "
+                                    "example path the way other endpoints can; see the hand-written full-flow "
+                                    "test (tests/examples/remote_start_full_flow.robot) for the chained pattern.",
+                    "requires_auth": True, "request_schema": [],
+                    "success_response": [
+                        {"field": "commandId", "type": "string"}, {"field": "vin", "type": "string"},
+                        {"field": "type", "type": "string"}, {"field": "status", "type": "string"},
+                        {"field": "requestedAt", "type": "string"}, {"field": "dispatchedAt", "type": "string"},
+                        {"field": "completedAt", "type": "string"}, {"field": "failureReason", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/commands/REPLACE_WITH_COMMAND_ID",
+                    "method": "DELETE", "tags": ["remote_command_cancel"],
+                    "description": "Cancel a command while it's still PENDING (before it reaches the "
+                                    "vehicle). Fails with 409 once dispatched — a real vehicle can't have a "
+                                    "command recalled after it's been sent. Same standalone-testing caveat "
+                                    "as remote_command_status: requires a real commandId.",
+                    "requires_auth": True, "request_schema": [],
+                    "success_response": [{"field": "commandId", "type": "string"}, {"field": "status", "type": "string"}],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/lock", "method": "POST",
+                    "tags": ["remote_lock", "remote"],
+                    "description": "Remotely lock the vehicle's doors. Fails with 409 if a door is currently open.",
+                    "requires_auth": True, "request_schema": [],
+                    "success_response": [{"field": "commandId", "type": "string"}, {"field": "status", "type": "string"}],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/lock"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/unlock", "method": "POST",
+                    "tags": ["remote_unlock", "remote"],
+                    "description": "Remotely unlock the vehicle's doors. Requires the owner's security PIN.",
+                    "requires_auth": True,
+                    "request_schema": [
+                        {"field": "pin", "type": "string", "required": True, "example": "1234"},
+                    ],
+                    "success_response": [{"field": "commandId", "type": "string"}, {"field": "status", "type": "string"}],
+                    "error_cases": [
+                        {"status": 400, "trigger": "pin missing", "payload_patch": {"pin": None}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 403, "trigger": "incorrect PIN", "payload_patch": {"pin": "0000"}},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/unlock"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/locate", "method": "POST",
+                    "tags": ["remote_locate", "remote"],
+                    "description": "'Find my vehicle' — flash the lights and/or sound the horn to help locate it.",
+                    "requires_auth": True,
+                    "request_schema": [
+                        {"field": "mode", "type": "string", "required": False, "example": "lights_and_horn",
+                         "notes": "one of: lights, horn, lights_and_horn"},
+                    ],
+                    "success_response": [
+                        {"field": "commandId", "type": "string"}, {"field": "status", "type": "string"},
+                        {"field": "mode", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 400, "trigger": "mode is not one of the allowed values",
+                         "payload_patch": {"mode": "siren"}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/locate"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/status", "method": "GET",
+                    "tags": ["vehicle_status", "vehicle"],
+                    "description": "Get the vehicle's current status: lock state, engine state, door state, "
+                                    "active services, fuel level, and odometer.",
+                    "requires_auth": True, "request_schema": [],
+                    "success_response": [
+                        {"field": "vin", "type": "string"}, {"field": "locked", "type": "boolean"},
+                        {"field": "engineOn", "type": "boolean"}, {"field": "doorsOpen", "type": "boolean"},
+                        {"field": "activeServices", "type": "array"}, {"field": "fuelLevelPct", "type": "integer"},
+                        {"field": "odometerMiles", "type": "integer"},
+                    ],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN", "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/status"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/services/1HGCM82633A004352/activate", "method": "POST",
+                    "tags": ["service_activate", "vehicle"],
+                    "description": "Activate a subscription service on the vehicle (e.g. Remote Start, WiFi "
+                                    "Hotspot, Stolen Vehicle Locator, Remote Diagnostics). Fails with 409 if "
+                                    "the service is already active.",
+                    "requires_auth": True,
+                    "request_schema": [
+                        {"field": "serviceCode", "type": "string", "required": True, "example": "WIFI_HOTSPOT",
+                         "notes": "one of: REMOTE_START, WIFI_HOTSPOT, STOLEN_VEHICLE_LOCATOR, REMOTE_DIAGNOSTICS"},
+                    ],
+                    "success_response": [
+                        {"field": "activationId", "type": "string"}, {"field": "serviceCode", "type": "string"},
+                        {"field": "status", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 400, "trigger": "serviceCode missing", "payload_patch": {"serviceCode": None}},
+                        {"status": 400, "trigger": "unknown serviceCode", "payload_patch": {"serviceCode": "NOT_A_REAL_SERVICE"}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/services/UNKNOWN-VIN-000/activate"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/services/1HGCM82633A004352/deactivate", "method": "POST",
+                    "tags": ["service_deactivate", "vehicle"],
+                    "description": "Deactivate a subscription service on the vehicle. Fails with 409 if the "
+                                    "service isn't currently active.",
+                    "requires_auth": True,
+                    "request_schema": [
+                        {"field": "serviceCode", "type": "string", "required": True, "example": "REMOTE_START"},
+                    ],
+                    "success_response": [{"field": "serviceCode", "type": "string"}, {"field": "status", "type": "string"}],
+                    "error_cases": [
+                        {"status": 400, "trigger": "serviceCode missing", "payload_patch": {"serviceCode": None}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/services/UNKNOWN-VIN-000/deactivate"},
+                    ],
+                },
+            ],
+        },
     ]
 }
 
@@ -369,6 +573,15 @@ def _add_feed(user, action, ftype="run"):
 
 def _now():
     return datetime.utcnow().isoformat()
+
+def _display_time():
+    """A real, human-readable timestamp for comment/created/updated fields.
+    These are stored once at write-time and never recomputed on render, so
+    this MUST be an absolute time (e.g. 'Sep 08, 02:45 PM') — a relative
+    string like 'Just now' would be permanently wrong the instant it's
+    more than a few seconds old, which is exactly the bug this fixes:
+    every comment/run, no matter how old, was showing 'Just now' forever."""
+    return datetime.now().strftime("%b %d, %I:%M %p")
 
 def _load_tickets():
     """Load tickets from disk, seeding with the default mock tickets on first run."""
@@ -549,6 +762,7 @@ Application: {resolved['application']}
 Endpoint: {endpoint['method']} {endpoint['path']}
 Endpoint description: {endpoint.get('description','')}
 Requires auth: {endpoint.get('requires_auth', False)}
+Expected status on success: {endpoint.get('success_status', 200)}
 
 Request fields (this is the real schema — use these exact field names):
 {schema_lines}
@@ -566,7 +780,8 @@ Return ONLY a JSON array (no markdown, no prose) of 2-5 test scenario objects, e
   description where relevant, not a generic statement
 - "payload": a JSON object using ONLY the field names above (or {{}} if none needed)
 - "expected_status": the expected HTTP status code (int), matching one of the known error
-  conditions for negative cases, or 200/201 for the positive case
+  conditions for negative cases, or the endpoint's documented success status above for
+  the positive case — do not assume 200 if a different status was given
 
 Include exactly one positive scenario (all required fields present, valid values) and one
 scenario per known error condition above. Prioritize a negative scenario that specifically
@@ -658,7 +873,7 @@ def _fallback_scenarios(ticket, tag, resolved):
         "name": "ValidRequest_ReturnsSuccess", "type": "positive",
         "description": f"Verifies {endpoint['method']} {endpoint['path']} succeeds with a valid, fully-formed request.",
         "payload": base_payload, "path": base_path,
-        "expected_status": 200, "auth": requires_auth,
+        "expected_status": endpoint.get("success_status", 200), "auth": requires_auth,
     }]
 
     for case in endpoint.get("error_cases", []):
@@ -1396,8 +1611,8 @@ def create_ticket():
         "labels":     data.get("labels", "None"),
         "comments":   [],
         "likes":      [],
-        "created":    "Just now",
-        "updated":    "Just now",
+        "created":    _display_time(),
+        "updated":    _display_time(),
         "testResults": None,
         "source":     data.get("source", "jira"),  # 'jira' or 'portal'
     }
@@ -1430,7 +1645,7 @@ def update_ticket(ticket_id):
     for key in allowed:
         if key in data:
             tickets[idx][key] = data[key]
-    tickets[idx]["updated"] = "Just now"
+    tickets[idx]["updated"] = _display_time()
 
     _save_tickets(tickets)
     return _ok({"ticket": tickets[idx]})
@@ -1487,13 +1702,13 @@ def add_comment(ticket_id):
 
     comment = {
         "id": int(datetime.utcnow().timestamp() * 1000), "author": user,
-        "time": "Just now", "content": text, "isBot": False, "avatar": "#6554c0",
+        "time": _display_time(), "content": text, "isBot": False, "avatar": "#6554c0",
     }
     if kind == "ticket":
         tickets = _load_tickets()
         idx = next(i for i, x in enumerate(tickets) if x.get("id") == ticket_id)
         tickets[idx].setdefault("comments", []).append(comment)
-        tickets[idx]["updated"] = "Just now"
+        tickets[idx]["updated"] = _display_time()
         _save_tickets(tickets)
         all_comments = tickets[idx]["comments"]
     else:  # kind == "bug"
@@ -1768,14 +1983,14 @@ def _save_runnable_comment(ticket_id, kind, note):
     comment written into tickets.json under this design."""
     comment = {
         "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
-        "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
+        "time": _display_time(), "content": note, "isBot": True, "avatar": "#4f8ef7",
     }
     if kind == "ticket":
         tickets = _load_tickets()
         idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
         if idx is not None:
             tickets[idx].setdefault("comments", []).append(comment)
-            tickets[idx]["updated"] = "Just now"
+            tickets[idx]["updated"] = _display_time()
             _save_tickets(tickets)
     elif kind == "bug":
         bugs = _load(BUGS_FILE, [])

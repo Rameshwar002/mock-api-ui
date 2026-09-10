@@ -791,6 +791,14 @@
 <script>
 /* ── AUTH ─────────────────────────────────────────────────── */
 const ME = localStorage.getItem('ab_user') || 'admin';
+
+/* A real, absolute timestamp — matches the backend's _display_time() format.
+   Used for optimistic local UI updates before the server round-trip
+   confirms it; without this, these fields showed the literal string
+   'Just now' forever, never reflecting when the change actually happened. */
+function displayTime() {
+  return new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
+}
 document.getElementById('nav-av').textContent       = ME.charAt(0).toUpperCase();
 document.getElementById('comment-av').textContent   = ME.charAt(0).toUpperCase();
 
@@ -1034,7 +1042,7 @@ async function setTicketStatus(newStatus) {
 
   const oldStatus = currentTicket.status;
   currentTicket.status = newStatus;
-  currentTicket.updated = 'Just now';
+  currentTicket.updated = displayTime();
   renderStatusDropdown(newStatus);
 
   // Add history comment
@@ -1395,7 +1403,7 @@ async function createIssue() {
       impact:'Moderate / Limited', service, reporter, assignee: null, desc: desc || title,
       robotTags: tags, reqType:'Report a system problem',
       severity:'None', labels:'None', comments:[],
-      created:'Just now', updated:'Just now', testResults: null
+      created: displayTime(), updated: displayTime(), testResults: null
     };
   }
 
