@@ -905,9 +905,7 @@ async function handleTicketRun(ticketId, lm) {
 
   if (analysis) showAnalysisCard(analysis);
 
-  const missing = [];
-  if (!partialParams.region) missing.push('region');
-  if (!partialParams.env)    missing.push('env');
+  const missing = getMissing();
 
   if (missing.length === 0) {
     showConfirmCard(partialParams);
@@ -997,6 +995,10 @@ function getMissing() {
   if (!partialParams.test_type) missing.push('suite');
   if (!partialParams.region)    missing.push('region');
   if (!partialParams.env)       missing.push('env');
+  // Ticket-based runs always ask which suite to actually execute (sanity vs
+  // functional) — generation always produces both, but the user picks which
+  // one runs, every time, per spec.
+  if (partialParams.ticketId && !partialParams.ticketSuite) missing.push('ticketSuite');
   return missing;
 }
 
@@ -1025,6 +1027,12 @@ function askForField(field) {
       hint:     "Select the environment:",
       options:  ['PROD','DEV','STAGE','INT','UAT','PREPROD'],
       color:    'var(--skip)',
+    },
+    ticketSuite: {
+      question: "Which suite would you like to run for this ticket?",
+      hint:     "Sanity is a quick curated subset (positive + key negatives); Functional is the complete set:",
+      options:  ['Sanity','Functional'],
+      color:    'var(--purple)',
     },
   };
 
@@ -1090,9 +1098,13 @@ function handleFollowUp(msg) {
   const extracted = extractParams(lm);
   let value = null;
 
-  if (field === 'suite')  value = extracted.suite  ? cap(extracted.suite)  : null;
-  if (field === 'region') value = extracted.region ? extracted.region.toUpperCase() : null;
-  if (field === 'env')    value = extracted.env    ? extracted.env.toUpperCase()    : null;
+  if (field === 'suite')       value = extracted.suite  ? cap(extracted.suite)  : null;
+  if (field === 'region')      value = extracted.region ? extracted.region.toUpperCase() : null;
+  if (field === 'env')         value = extracted.env    ? extracted.env.toUpperCase()    : null;
+  if (field === 'ticketSuite') {
+    if (lm.includes('sanity'))          value = 'Sanity';
+    else if (lm.includes('functional')) value = 'Functional';
+  }
 
   if (!value) {
     // Still couldn't parse — check if it's an unknown suite
@@ -1123,9 +1135,10 @@ function handleFollowUp(msg) {
 
 /* ─ Store one field into partialParams ──────────────────── */
 function storeField(field, value) {
-  if (field === 'suite')  partialParams.test_type = value;
-  if (field === 'region') partialParams.region    = value.toUpperCase();
-  if (field === 'env')    partialParams.env        = value.toUpperCase();
+  if (field === 'suite')       partialParams.test_type   = value;
+  if (field === 'region')      partialParams.region      = value.toUpperCase();
+  if (field === 'env')         partialParams.env         = value.toUpperCase();
+  if (field === 'ticketSuite') partialParams.ticketSuite = value.toLowerCase();
 }
 
 /* ─ Unknown intent card — totally unrelated message ─────── */
@@ -1189,6 +1202,7 @@ function showConfirmCard(params) {
           <span class="cp t">${params.test_type}</span>
           <span class="cp r">${params.region}</span>
           <span class="cp e">${params.env}</span>
+          ${params.ticketSuite ? `<span class="cp" style="background:rgba(139,127,214,.12);color:var(--purple)">${cap(params.ticketSuite)} suite</span>` : ''}
         </div>
         <div class="cc-btns">
           <button class="c-run" onclick="confirmRun(true)">▶&nbsp;Run Tests</button>
@@ -1237,10 +1251,11 @@ async function confirmRun(yes) {
     await fetch('http://localhost:8000/confirm_run', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        params:   pendingParams,
-        user:     ME,
-        ticketId: pendingParams.ticketId || null,
-        tags:     pendingParams.tags     || [],
+        params:      pendingParams,
+        user:        ME,
+        ticketId:    pendingParams.ticketId || null,
+        ticketSuite: pendingParams.ticketSuite || null,
+        tags:        pendingParams.tags     || [],
       })
     });
   } catch(_) {}

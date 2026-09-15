@@ -527,6 +527,7 @@ execution_state = {
     "failed":      0,
     "skipped":     0,
     "test_type":   "",
+    "suite":       None,      # sanity | functional | None (which suite the user chose to run)
     "region":      "",
     "env":         "",
     "user":        "",
@@ -892,6 +893,31 @@ def _fallback_scenarios(ticket, tag, resolved):
     return scenarios
 
 
+def _tag_scenario_suites(scenarios):
+    """Categorize scenarios into suites. Every scenario belongs to
+    'functional' (the complete set). A curated subset ALSO belongs to
+    'sanity' — the positive case plus up to 2 of the most critical negative
+    cases (auth/missing-field prioritized over deeper edge cases) — so
+    'sanity' is a real, runnable suite in its own right with both positive
+    and negative coverage, not just the happy path. Mutates and returns
+    the same list, adding a 'suites' key to each scenario dict."""
+    for sc in scenarios:
+        sc["suites"] = ["functional"]
+
+    positives = [sc for sc in scenarios if sc.get("type") == "positive"]
+    negatives = [sc for sc in scenarios if sc.get("type") != "positive"]
+    # Prioritize auth-related negatives (401/403) for the sanity subset —
+    # they're the most likely to catch a real regression cheaply.
+    negatives_sorted = sorted(negatives, key=lambda sc: 0 if sc.get("expected_status") in (401, 403) else 1)
+
+    for sc in positives[:1]:
+        sc["suites"].append("sanity")
+    for sc in negatives_sorted[:2]:
+        sc["suites"].append("sanity")
+
+    return scenarios
+
+
 def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
     """Generate ONE Robot Framework file for this ticket, named after the
     ticket ID (tests/{TICKET_ID}_generated.robot) — not per-tag — covering
@@ -911,6 +937,7 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
     sessions   = {}   # application name -> (alias, base_url)
     case_blocks = []
     entries    = []
+    tc_counter = 0   # sequential test number across the whole ticket, per user's spec: TC-1, TC-2, TC-3...
 
     for tag in missing_tags:
         safe_tag = re.sub(r"[^a-zA-Z0-9_]+", "_", tag.strip().lower()).strip("_") or "case"
@@ -918,6 +945,7 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
         llm_scenarios = _call_llm_for_scenarios(ticket, tag, resolved)
         scenarios     = llm_scenarios or _fallback_scenarios(ticket, tag, resolved)
         generated_via = "llm" if llm_scenarios else "template"
+        scenarios     = _tag_scenario_suites(scenarios)
 
         base_url = resolved["base_url"] if resolved else "https://api.example.com"
         endpoint = resolved["endpoint"] if resolved else {"method": "GET", "path": "/api/v1/unknown", "description": ""}
@@ -933,6 +961,9 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
                      "DELETE": "Delete On Session", "PATCH": "Patch On Session"}.get(method, "Get On Session")
 
         for sc in scenarios:
+            tc_counter += 1
+            tc_number = f"TC-{tc_counter}"
+            sc["tcNumber"] = tc_number
             name = re.sub(r"[^a-zA-Z0-9_]+", "_", sc.get("name", "Scenario")).strip("_")
             case_name = f"{ticket_id}_{safe_tag.capitalize()}_{name}"
             sc_path  = sc.get("path", ep_path)
@@ -943,6 +974,7 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
             origin_note = ("Scenario designed by the local LLM." if generated_via == "llm" else
                            "DEGRADED: local LLM unreachable/unparsable -- generic deterministic "
                            "template used instead. Not tailored to this ticket's description.")
+            suite_tags = "    ".join(sc["suites"])
 
             payload = sc.get("payload")
             if payload is not None and method in ("POST", "PUT", "PATCH"):
@@ -954,9 +986,9 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
                              f"    ${{resp}}=    {method_kw}    {alias}    {sc_path}{headers_arg}    expected_status=any")
 
             case_blocks.append(f"""{case_name}
-    [Documentation]    {sc.get('description','')}
+    [Documentation]    {tc_number}: {sc.get('description','')}
     ...                {origin_note}
-    [Tags]    {sc.get('type','positive')}    {safe_tag}    {ticket_id}    {origin_tag}
+    [Tags]    {tc_number}    {suite_tags}    {sc.get('type','positive')}    {safe_tag}    {ticket_id}    {origin_tag}
 {body_line}
     Status Should Be    {sc.get('expected_status', 200)}    ${{resp}}
 """)
@@ -965,7 +997,8 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
             "tag": tag, "name": f"{ticket_id}_{safe_tag.capitalize()}_Suite", "file": rel_path,
             "suite": "Generated", "generatedFor": ticket_id, "generatedAt": _now(),
             "application": app_name, "endpoint": f"{method} {ep_path}", "baseUrl": base_url,
-            "scenarios": [{"name": s.get("name"), "type": s.get("type")} for s in scenarios],
+            "scenarios": [{"name": s.get("name"), "type": s.get("type"),
+                           "tcNumber": s.get("tcNumber"), "suites": s.get("suites")} for s in scenarios],
             "generatedVia": generated_via,
         })
 
@@ -1156,7 +1189,7 @@ def _preflight_check():
     return None
 
 
-def _execute_robot(test_type, region, env, user, target_files=None, test_name=None):
+def _execute_robot(test_type, region, env, user, target_files=None, test_name=None, suite_filter=None):
     """The actual subprocess/parse/demo-fallback core, shared by both
     suite-based and ticket-based runs. Assumes execution_state["status"] is
     already "running" and "started_at" already set by the caller.
@@ -1164,7 +1197,12 @@ def _execute_robot(test_type, region, env, user, target_files=None, test_name=No
     test_name: if set, only this single Robot Framework test case is run
     (via --test) within target_files — used when a bug ticket is linked to
     one specific failed test, so re-running it doesn't re-run the parent's
-    entire suite."""
+    entire suite.
+
+    suite_filter: "sanity" or "functional" — filters WITHIN target_files to
+    only the test cases tagged with that suite (see _tag_scenario_suites).
+    Mutually exclusive with test_name in practice (a single-test delegation
+    run doesn't need suite filtering on top)."""
     if target_files:
         preflight_error = _preflight_check()
         if preflight_error:
@@ -1188,6 +1226,8 @@ def _execute_robot(test_type, region, env, user, target_files=None, test_name=No
         ]
         if test_name:
             cmd += ["--test", test_name]
+        elif suite_filter:
+            cmd += ["--include", suite_filter.lower()]
         cmd += target_files
     else:
         cmd = [
@@ -1263,7 +1303,7 @@ def _execute_robot(test_type, region, env, user, target_files=None, test_name=No
               "fail" if execution_state["failed"] > 0 else "pass")
 
 
-def _run_ticket_pipeline(ticket_id, region, env, user):
+def _run_ticket_pipeline(ticket_id, region, env, user, suite=None):
     """The full ticket-based run, entirely inside a background thread so the
     HTTP request that triggered it (POST /confirm_run or
     POST /api/tickets/<id>/run) returns almost immediately — the caller
@@ -1273,17 +1313,24 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
 
     ticket_id may resolve to EITHER a genuine ticket in tickets.json OR a
     bug in bugs.json (via _find_runnable) — bugs are never written into
-    tickets.json, so this must never assume tk came from tickets.json."""
+    tickets.json, so this must never assume tk came from tickets.json.
+
+    suite: "sanity" or "functional" — which generated suite to actually
+    execute (see _tag_scenario_suites). Generation always produces both;
+    this only filters which tagged test cases run. If not provided,
+    defaults to "functional" (the complete set) so a run never silently
+    does less than expected."""
+    suite = (suite or "functional").lower()
     with _state_lock:
         execution_state.update({
             "status": "running", "stage": "understanding",
             "total": 0, "passed": 0, "failed": 0, "skipped": 0,
             "test_type": ticket_id, "region": region, "env": env, "user": user,
-            "mode": None, "analysis": None,
+            "mode": None, "analysis": None, "suite": suite,
             "started_at": _now(), "finished_at": None, "duration_s": 0,
             "failures": [],
         })
-    _add_feed(user, f"started {ticket_id} · {region} · {env}", "run")
+    _add_feed(user, f"started {ticket_id} · {region} · {env} · suite={suite}", "run")
 
     tk, kind = _find_runnable(ticket_id)
     if not tk:
@@ -1352,7 +1399,8 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
             }
             execution_state["stage"] = "executing"
         target_files = list(dict.fromkeys(os.path.join(BASE, e["file"]) for e in p_matched))
-        _execute_robot(ticket_id, region, env, user, target_files, test_name=failed_test)
+        _execute_robot(ticket_id, region, env, user, target_files, test_name=failed_test,
+                        suite_filter=None if failed_test else suite)
         return
 
     # ── NORMAL TICKET FLOW (kind == "ticket") ────────────────────────────
@@ -1390,7 +1438,7 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
         execution_state["stage"] = "executing"
 
     target_files = list(dict.fromkeys(os.path.join(BASE, e["file"]) for e in (matched + generated)))
-    _execute_robot(ticket_id, region, env, user, target_files)
+    _execute_robot(ticket_id, region, env, user, target_files, suite_filter=suite)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1482,6 +1530,7 @@ def confirm_run():
     params    = data.get("params", {})
     user      = data.get("user", "unknown")
     ticket_id = data.get("ticketId")
+    ticket_suite = data.get("ticketSuite")   # "sanity" or "functional" — ticket-run suite choice
     test_type = params.get("test_type", "Sanity")
     region    = params.get("region", "US")
     env       = params.get("env", "DEV")
@@ -1493,9 +1542,10 @@ def confirm_run():
     # immediately; poll GET /status for "stage" (understanding -> generating
     # -> executing) and the "analysis" field once it's ready.
     if ticket_id:
-        t = threading.Thread(target=_run_ticket_pipeline, args=(ticket_id, region, env, user), daemon=True)
+        t = threading.Thread(target=_run_ticket_pipeline,
+                              args=(ticket_id, region, env, user, ticket_suite), daemon=True)
         t.start()
-        return _ok({"status": "started", "ticketId": ticket_id})
+        return _ok({"status": "started", "ticketId": ticket_id, "suite": ticket_suite or "functional"})
 
     # ── Suite-based run (no ticket) ─────────────────────────────────────
     t = threading.Thread(target=run_robot_tests, args=(test_type, region, env, user), daemon=True)
@@ -1768,6 +1818,7 @@ def analyze_ticket(ticket_id):
         "missingTags": missing,
         "generationPreview": previews,
         "needsGeneration": len(missing) > 0,
+        "availableSuites": ["sanity", "functional"],
     })
 
 
@@ -1790,11 +1841,12 @@ def run_ticket_script(ticket_id):
     user   = request.args.get("username") or body.get("user", "unknown")
     region = (request.args.get("region") or body.get("region") or "US").upper()
     env    = (request.args.get("env")    or body.get("env")    or "INT").upper()
+    suite  = request.args.get("suite")   or body.get("suite")   # "sanity" or "functional"
 
-    thread = threading.Thread(target=_run_ticket_pipeline, args=(ticket_id, region, env, user), daemon=True)
+    thread = threading.Thread(target=_run_ticket_pipeline, args=(ticket_id, region, env, user, suite), daemon=True)
     thread.start()
 
-    return _ok({"status": "started", "ticketId": ticket_id})
+    return _ok({"status": "started", "ticketId": ticket_id, "suite": suite or "functional"})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
