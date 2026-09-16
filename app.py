@@ -11,6 +11,7 @@ Spring Boot handles real Jira creation; this layer proxies to it.
 
 import os
 import io
+import csv
 import re
 import sys
 import json
@@ -774,7 +775,10 @@ Success response fields:
 Known error conditions for this endpoint:
 {error_lines}
 
-Return ONLY a JSON array (no markdown, no prose) of 2-5 test scenario objects, each with:
+You MUST return exactly {1 + len(endpoint.get('error_cases', []))} scenario objects: one positive
+scenario, plus exactly one negative scenario per known error condition listed above — do not
+skip any error condition, and do not add scenarios beyond these. Return ONLY a JSON array (no
+markdown, no prose), each object with:
 - "name": short PascalCase test name (no spaces)
 - "type": "positive" or "negative"
 - "description": one sentence of what it verifies — tie it back to the ticket's own
@@ -784,9 +788,8 @@ Return ONLY a JSON array (no markdown, no prose) of 2-5 test scenario objects, e
   conditions for negative cases, or the endpoint's documented success status above for
   the positive case — do not assume 200 if a different status was given
 
-Include exactly one positive scenario (all required fields present, valid values) and one
-scenario per known error condition above. Prioritize a negative scenario that specifically
-reproduces the bug described in the ticket, if one of the known error conditions matches it."""
+Prioritize wording a negative scenario to specifically reproduce the bug described in the
+ticket, if one of the known error conditions matches it."""
     else:
         # No resolved endpoint/schema for this tag — still ask the LLM to
         # reason from the ticket text alone, rather than skipping straight
@@ -849,8 +852,22 @@ Include at least one positive and one negative scenario."""
         except json.JSONDecodeError:
             m = re.search(r"\[.*\]", text, re.S)
             scenarios = json.loads(m.group(0)) if m else None
-        if isinstance(scenarios, list) and scenarios:
-            return scenarios
+
+        if not (isinstance(scenarios, list) and scenarios):
+            return None
+
+        # Enforce full error-code coverage when we told the model exactly how
+        # many scenarios to return (i.e. a schema/error_cases list was given).
+        # An LLM that under-delivers despite explicit instructions is treated
+        # as a failed response — better to fall back to the deterministic
+        # generator (which covers every documented error case unconditionally)
+        # than silently ship incomplete coverage.
+        if resolved:
+            required = 1 + len(resolved["endpoint"].get("error_cases", []))
+            if len(scenarios) < required:
+                return None
+
+        return scenarios
     except (urllib.error.URLError, TimeoutError, ValueError, KeyError, json.JSONDecodeError):
         pass
     return None
@@ -933,10 +950,12 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
     ticket_id  = ticket["id"]
     rel_path   = _canonical_ticket_file(ticket_id)
     fpath      = os.path.join(BASE, rel_path)
+    rel_csv_path = rel_path.rsplit(".", 1)[0] + ".csv"
 
     sessions   = {}   # application name -> (alias, base_url)
     case_blocks = []
     entries    = []
+    csv_rows   = []  # one row per test case, for the manual-review CSV export
     tc_counter = 0   # sequential test number across the whole ticket, per user's spec: TC-1, TC-2, TC-3...
 
     for tag in missing_tags:
@@ -993,13 +1012,21 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
     Status Should Be    {sc.get('expected_status', 200)}    ${{resp}}
 """)
 
+            csv_rows.append({
+                "TC No":         tc_number,
+                "Description":   sc.get("description", ""),
+                "Type of Test":  (sc.get("type") or "positive").capitalize(),
+                "Sanity":        "Yes" if "sanity" in sc["suites"] else "No",
+                "Functional":    "Yes" if "functional" in sc["suites"] else "No",
+            })
+
         entries.append({
             "tag": tag, "name": f"{ticket_id}_{safe_tag.capitalize()}_Suite", "file": rel_path,
             "suite": "Generated", "generatedFor": ticket_id, "generatedAt": _now(),
             "application": app_name, "endpoint": f"{method} {ep_path}", "baseUrl": base_url,
             "scenarios": [{"name": s.get("name"), "type": s.get("type"),
                            "tcNumber": s.get("tcNumber"), "suites": s.get("suites")} for s in scenarios],
-            "generatedVia": generated_via,
+            "generatedVia": generated_via, "testPlanCsv": rel_csv_path,
         })
 
     llm_tags      = [t for t in missing_tags if any(e["tag"] == t and e["generatedVia"] == "llm" for e in entries)]
@@ -1030,6 +1057,14 @@ Initialize Sessions
     os.makedirs(TESTS_DIR, exist_ok=True)
     with open(fpath, "w", encoding="utf-8", newline="\n") as f:
         f.write(content)
+
+    # Manual-review CSV export — one row per test case, same base filename
+    # as the .robot file (tests/{TICKET_ID}_generated.csv).
+    csv_path = os.path.join(BASE, rel_csv_path)
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["TC No", "Description", "Type of Test", "Sanity", "Functional"])
+        writer.writeheader()
+        writer.writerows(csv_rows)
 
     # Replace any previous entries generated for THIS ticket (a re-run
     # regenerates cleanly) — leave every other ticket's/tag's entries alone.
@@ -1418,9 +1453,11 @@ def _run_ticket_pipeline(ticket_id, region, env, user, suite=None):
             f"{len(g.get('scenarios', []))} scenarios, via {g.get('generatedVia','template')})"
             for g in generated
         )
+        csv_paths = sorted(set(g.get("testPlanCsv") for g in generated if g.get("testPlanCsv")))
         degraded = [g["tag"] for g in generated if g.get("generatedVia") != "llm"]
         note = (f"AutoBot: no existing test case for tag(s) "
-                f"[{', '.join(missing)}] - generated {gen_desc} before running.")
+                f"[{', '.join(missing)}] - generated {gen_desc} before running. "
+                f"Test plan for manual review: {', '.join(csv_paths)}")
         if degraded:
             note += (f" WARNING: tag(s) [{', '.join(degraded)}] used the DETERMINISTIC "
                      f"TEMPLATE fallback, not the LLM - the local LLM was unreachable or "
