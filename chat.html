@@ -980,6 +980,30 @@ function showAnalysisCard(analysis) {
   win.appendChild(el); win.scrollTop = win.scrollHeight;
 }
 
+/* ─ Download card — offers the CSV test-plan export ──── */
+function showDownloadCard(ticketId) {
+  const win = document.getElementById('chat-win');
+  const el  = document.createElement('div');
+  el.className = 'msg bot';
+  const url = `${API_BASE}/api/tickets/${encodeURIComponent(ticketId)}/test-plan.csv`;
+  el.innerHTML = `
+    <div class="m-av">🤖</div>
+    <div class="m-col">
+      <div class="m-who">AutoBot</div>
+      <div class="analysis-card">
+        <div class="an-title"><i class="fas fa-file-csv"></i> Test plan ready for review</div>
+        <div class="an-row"><span class="an-ico ok">✓</span>
+          <div><div class="an-name">${esc(ticketId)}_test_plan.csv</div>
+          <div class="an-sub">TC No &middot; Description &middot; Type of Test &middot; Sanity &middot; Functional</div></div>
+        </div>
+        <a class="c-run" style="text-decoration:none;text-align:center;display:block;box-sizing:border-box;" href="${url}" download>
+          <i class="fas fa-download"></i> Download Test Plan (CSV)
+        </a>
+      </div>
+    </div>`;
+  win.appendChild(el); win.scrollTop = win.scrollHeight;
+}
+
 /* ─ Extract suite / region / env from free text ──────── */
 function extractParams(lm) {
   return {
@@ -1283,7 +1307,13 @@ async function confirmRun(yes) {
       const r = await fetch('http://localhost:8000/status'); const d = await r.json();
       const stageLabel = STAGE_LABEL[d.stage] || 'Running…';
       setStep(rowIds[3],'running',`${stageLabel} (${elapsed}s elapsed)`,ts());
-      if (!noteShown && d.analysis?.note) { botMsg(d.analysis.note); noteShown = true; }
+      if (!noteShown && d.analysis?.note) {
+        botMsg(d.analysis.note);
+        noteShown = true;
+        const hasTests = (d.analysis.matchedTests?.length || d.analysis.generated?.length);
+        const csvTicketId = d.analysis.delegatedTo || pendingParams.ticketId;
+        if (csvTicketId && hasTests) showDownloadCard(csvTicketId);
+      }
       if (d.status==='completed') { result=d; break; }
     } catch(_) { if(elapsed>=6){ result=genDemo(); break; } }
   }

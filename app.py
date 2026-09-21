@@ -1599,6 +1599,23 @@ def get_status():
 #  ROUTES — RESULTS
 # ══════════════════════════════════════════════════════════════════════════════
 
+@app.route("/api/tickets/<ticket_id>/test-plan.csv")
+def download_test_plan(ticket_id):
+    """Download the CSV test-plan export for a ticket's generated test
+    cases (TC No, Description, Type of Test, Sanity, Functional) — for
+    manual review. 404 if nothing has been generated for this ticket yet
+    (run it first)."""
+    t, kind = _find_runnable(ticket_id)
+    if not t:
+        return _err(f"{ticket_id} not found.", 404)
+    rel_csv  = _canonical_ticket_file(ticket_id).rsplit(".", 1)[0] + ".csv"
+    csv_path = os.path.join(BASE, rel_csv)
+    if not os.path.exists(csv_path):
+        return _err(f"No test plan has been generated yet for {ticket_id}. Run it first.", 404)
+    return send_file(csv_path, mimetype="text/csv", as_attachment=True,
+                      download_name=f"{ticket_id}_test_plan.csv")
+
+
 @app.route("/results/<path:filename>")
 def serve_results(filename):
     return send_from_directory(RESULTS_DIR, filename)
