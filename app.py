@@ -11,6 +11,7 @@ Spring Boot handles real Jira creation; this layer proxies to it.
 
 import os
 import io
+import csv
 import re
 import sys
 import json
@@ -305,6 +306,210 @@ _SEED_API_SPECS = {
                 },
             ],
         },
+        {
+            "name": "Connected Vehicle Services", "tags": ["vehicle", "remote", "telematics", "ccs", "cvs"],
+            "base_urls": {
+                "US":   {"DEV": _MOCK_URL, "INT": _MOCK_URL, "PROD": _MOCK_URL},
+                "EU":   {"DEV": _MOCK_URL, "INT": _MOCK_URL, "PROD": _MOCK_URL},
+                "APAC": {"DEV": _MOCK_URL, "INT": _MOCK_URL, "PROD": _MOCK_URL},
+            },
+            "endpoints": [
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/start", "method": "POST",
+                    "tags": ["remote_start", "remote"],
+                    "description": "Step 1 of the async remote-start flow: mobile app submits a start "
+                                    "request. Validated immediately (auth, PIN, vehicle preconditions) and "
+                                    "if valid, ACCEPTED (202) with a commandId — the vehicle has NOT executed "
+                                    "it yet. The actual engine start happens in the background; poll "
+                                    "GET .../remote/commands/{commandId} for real completion. Rejects "
+                                    "immediately (409) if the engine's already running, a door is open, or "
+                                    "the Remote Start service isn't active on this vehicle.",
+                    "requires_auth": True, "success_status": 202,
+                    "request_schema": [
+                        {"field": "pin", "type": "string", "required": True, "example": "1234"},
+                        {"field": "duration_minutes", "type": "integer", "required": False, "example": 10},
+                        {"field": "simulateFailure", "type": "boolean", "required": False, "example": False,
+                         "notes": "test hook: forces the background dispatch to end in FAILED instead of COMPLETED"},
+                    ],
+                    "success_response": [
+                        {"field": "commandId", "type": "string"}, {"field": "vin", "type": "string"},
+                        {"field": "type", "type": "string"}, {"field": "status", "type": "string"},
+                        {"field": "requestedAt", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 400, "trigger": "pin missing", "payload_patch": {"pin": None}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 403, "trigger": "incorrect PIN", "payload_patch": {"pin": "0000"}},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/start"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/stop", "method": "POST",
+                    "tags": ["remote_stop", "remote"],
+                    "description": "Step 1 of the async remote-stop flow — same pattern as remote_start: "
+                                    "immediate 202 ACCEPTED with a commandId, actual engine stop happens in "
+                                    "the background. Poll GET .../remote/commands/{commandId} for completion. "
+                                    "Rejects immediately (409) if the engine isn't running.",
+                    "requires_auth": True, "success_status": 202,
+                    "request_schema": [
+                        {"field": "simulateFailure", "type": "boolean", "required": False, "example": False,
+                         "notes": "test hook: forces the background dispatch to end in FAILED instead of COMPLETED"},
+                    ],
+                    "success_response": [
+                        {"field": "commandId", "type": "string"}, {"field": "vin", "type": "string"},
+                        {"field": "type", "type": "string"}, {"field": "status", "type": "string"},
+                        {"field": "requestedAt", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/stop"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/commands/REPLACE_WITH_COMMAND_ID",
+                    "method": "GET", "tags": ["remote_command_status"],
+                    "description": "Step 2 of the async flow: poll this until status is terminal "
+                                    "(COMPLETED, FAILED, or CANCELLED). Status transitions "
+                                    "PENDING -> DISPATCHED -> COMPLETED/FAILED over roughly 2.5 seconds in "
+                                    "the mock. NOTE: this endpoint requires a real commandId from a prior "
+                                    "start/stop submission — it cannot be tested standalone with a fixed "
+                                    "example path the way other endpoints can; see the hand-written full-flow "
+                                    "test (tests/examples/remote_start_full_flow.robot) for the chained pattern.",
+                    "requires_auth": True, "request_schema": [],
+                    "success_response": [
+                        {"field": "commandId", "type": "string"}, {"field": "vin", "type": "string"},
+                        {"field": "type", "type": "string"}, {"field": "status", "type": "string"},
+                        {"field": "requestedAt", "type": "string"}, {"field": "dispatchedAt", "type": "string"},
+                        {"field": "completedAt", "type": "string"}, {"field": "failureReason", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/commands/REPLACE_WITH_COMMAND_ID",
+                    "method": "DELETE", "tags": ["remote_command_cancel"],
+                    "description": "Cancel a command while it's still PENDING (before it reaches the "
+                                    "vehicle). Fails with 409 once dispatched — a real vehicle can't have a "
+                                    "command recalled after it's been sent. Same standalone-testing caveat "
+                                    "as remote_command_status: requires a real commandId.",
+                    "requires_auth": True, "request_schema": [],
+                    "success_response": [{"field": "commandId", "type": "string"}, {"field": "status", "type": "string"}],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/lock", "method": "POST",
+                    "tags": ["remote_lock", "remote"],
+                    "description": "Remotely lock the vehicle's doors. Fails with 409 if a door is currently open.",
+                    "requires_auth": True, "request_schema": [],
+                    "success_response": [{"field": "commandId", "type": "string"}, {"field": "status", "type": "string"}],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/lock"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/unlock", "method": "POST",
+                    "tags": ["remote_unlock", "remote"],
+                    "description": "Remotely unlock the vehicle's doors. Requires the owner's security PIN.",
+                    "requires_auth": True,
+                    "request_schema": [
+                        {"field": "pin", "type": "string", "required": True, "example": "1234"},
+                    ],
+                    "success_response": [{"field": "commandId", "type": "string"}, {"field": "status", "type": "string"}],
+                    "error_cases": [
+                        {"status": 400, "trigger": "pin missing", "payload_patch": {"pin": None}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 403, "trigger": "incorrect PIN", "payload_patch": {"pin": "0000"}},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/unlock"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/remote/locate", "method": "POST",
+                    "tags": ["remote_locate", "remote"],
+                    "description": "'Find my vehicle' — flash the lights and/or sound the horn to help locate it.",
+                    "requires_auth": True,
+                    "request_schema": [
+                        {"field": "mode", "type": "string", "required": False, "example": "lights_and_horn",
+                         "notes": "one of: lights, horn, lights_and_horn"},
+                    ],
+                    "success_response": [
+                        {"field": "commandId", "type": "string"}, {"field": "status", "type": "string"},
+                        {"field": "mode", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 400, "trigger": "mode is not one of the allowed values",
+                         "payload_patch": {"mode": "siren"}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/remote/locate"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/vehicle/1HGCM82633A004352/status", "method": "GET",
+                    "tags": ["vehicle_status", "vehicle"],
+                    "description": "Get the vehicle's current status: lock state, engine state, door state, "
+                                    "active services, fuel level, and odometer.",
+                    "requires_auth": True, "request_schema": [],
+                    "success_response": [
+                        {"field": "vin", "type": "string"}, {"field": "locked", "type": "boolean"},
+                        {"field": "engineOn", "type": "boolean"}, {"field": "doorsOpen", "type": "boolean"},
+                        {"field": "activeServices", "type": "array"}, {"field": "fuelLevelPct", "type": "integer"},
+                        {"field": "odometerMiles", "type": "integer"},
+                    ],
+                    "error_cases": [
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN", "path_override": "/api/v1/vehicle/UNKNOWN-VIN-000/status"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/services/1HGCM82633A004352/activate", "method": "POST",
+                    "tags": ["service_activate", "vehicle"],
+                    "description": "Activate a subscription service on the vehicle (e.g. Remote Start, WiFi "
+                                    "Hotspot, Stolen Vehicle Locator, Remote Diagnostics). Fails with 409 if "
+                                    "the service is already active.",
+                    "requires_auth": True,
+                    "request_schema": [
+                        {"field": "serviceCode", "type": "string", "required": True, "example": "WIFI_HOTSPOT",
+                         "notes": "one of: REMOTE_START, WIFI_HOTSPOT, STOLEN_VEHICLE_LOCATOR, REMOTE_DIAGNOSTICS"},
+                    ],
+                    "success_response": [
+                        {"field": "activationId", "type": "string"}, {"field": "serviceCode", "type": "string"},
+                        {"field": "status", "type": "string"},
+                    ],
+                    "error_cases": [
+                        {"status": 400, "trigger": "serviceCode missing", "payload_patch": {"serviceCode": None}},
+                        {"status": 400, "trigger": "unknown serviceCode", "payload_patch": {"serviceCode": "NOT_A_REAL_SERVICE"}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/services/UNKNOWN-VIN-000/activate"},
+                    ],
+                },
+                {
+                    "path": "/api/v1/services/1HGCM82633A004352/deactivate", "method": "POST",
+                    "tags": ["service_deactivate", "vehicle"],
+                    "description": "Deactivate a subscription service on the vehicle. Fails with 409 if the "
+                                    "service isn't currently active.",
+                    "requires_auth": True,
+                    "request_schema": [
+                        {"field": "serviceCode", "type": "string", "required": True, "example": "REMOTE_START"},
+                    ],
+                    "success_response": [{"field": "serviceCode", "type": "string"}, {"field": "status", "type": "string"}],
+                    "error_cases": [
+                        {"status": 400, "trigger": "serviceCode missing", "payload_patch": {"serviceCode": None}},
+                        {"status": 401, "trigger": "missing or invalid Authorization header", "no_auth": True},
+                        {"status": 404, "trigger": "unknown VIN",
+                         "path_override": "/api/v1/services/UNKNOWN-VIN-000/deactivate"},
+                    ],
+                },
+            ],
+        },
     ]
 }
 
@@ -323,6 +528,7 @@ execution_state = {
     "failed":      0,
     "skipped":     0,
     "test_type":   "",
+    "suite":       None,      # sanity | functional | None (which suite the user chose to run)
     "region":      "",
     "env":         "",
     "user":        "",
@@ -370,6 +576,15 @@ def _add_feed(user, action, ftype="run"):
 def _now():
     return datetime.utcnow().isoformat()
 
+def _display_time():
+    """A real, human-readable timestamp for comment/created/updated fields.
+    These are stored once at write-time and never recomputed on render, so
+    this MUST be an absolute time (e.g. 'Sep 08, 02:45 PM') — a relative
+    string like 'Just now' would be permanently wrong the instant it's
+    more than a few seconds old, which is exactly the bug this fixes:
+    every comment/run, no matter how old, was showing 'Just now' forever."""
+    return datetime.now().strftime("%b %d, %I:%M %p")
+
 def _load_tickets():
     """Load tickets from disk, seeding with the default mock tickets on first run."""
     if not os.path.exists(TICKETS_FILE):
@@ -380,14 +595,14 @@ def _load_tickets():
 def _save_tickets(tickets):
     _save(TICKETS_FILE, tickets)
 
-def _next_ticket_id(tickets):
+def _next_ticket_id(tickets, prefix="IT"):
     nums = []
     for t in tickets:
         try:
             nums.append(int(str(t.get("id", "IT-0")).split("-")[-1]))
         except ValueError:
             pass
-    return f"IT-{(max(nums) + 1) if nums else 11}"
+    return f"{prefix}-{(max(nums) + 1) if nums else 11}"
 
 
 def _load_catalog():
@@ -403,24 +618,36 @@ def _save_catalog(catalog):
     _save(CATALOG_FILE, catalog)
 
 
+def _canonical_ticket_file(ticket_id):
+    """The one true filename a ticket's generated script must live at.
+    Any catalog entry pointing anywhere else is stale (e.g. left over from
+    an older per-tag generation scheme) and must not be trusted."""
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]+", "_", ticket_id)
+    return f"tests/{safe_id}_generated.robot"
+
+
 def _analyze_ticket(ticket):
     """Understand a ticket and decide which test case(s) it needs.
     Returns (matched, missing) — matched catalog entries (whose backing .robot
-    file genuinely exists on disk) vs. tags with no real coverage yet.
+    file genuinely exists on disk, at the current canonical path) vs. tags
+    with no real coverage yet.
 
     STRICT PER-TICKET SCOPE: an entry only counts as a match if it was
-    auto-generated specifically FOR THIS ticket (generatedFor == ticket id).
-    We deliberately do NOT fall back to any other file just because it shares
-    a tag — a ticket run must only ever execute scripts that belong to that
-    ticket, never an unrelated pre-existing .robot file (e.g. a hand-written
-    sample.robot) that happens to carry the same tag."""
-    catalog = _load_catalog()
-    tags = ticket.get("robotTags") or ["regression"]
+    auto-generated specifically FOR THIS ticket (generatedFor == ticket id)
+    AND its file is the current canonical per-ticket file — not a stale
+    entry left over from a previous generation scheme or a coincidentally
+    named pre-existing file. We deliberately do NOT fall back to any other
+    file just because it shares a tag — a ticket run must only ever execute
+    scripts that genuinely belong to that ticket."""
+    catalog  = _load_catalog()
+    tags     = ticket.get("robotTags") or ["regression"]
+    canonical = _canonical_ticket_file(ticket["id"])
     matched, missing = [], []
     for tag in tags:
         entry = next((c for c in catalog
                       if c.get("tag", "").lower() == tag.lower()
-                      and c.get("generatedFor", "").lower() == ticket["id"].lower()), None)
+                      and c.get("generatedFor", "").lower() == ticket["id"].lower()
+                      and c.get("file") == canonical), None)
         entry_file = os.path.join(BASE, entry["file"]) if entry else None
         if entry and entry_file and os.path.exists(entry_file):
             matched.append(entry)
@@ -478,10 +705,18 @@ def _build_valid_request(endpoint):
 
 
 def _call_llm_for_scenarios(ticket, tag, resolved):
-    """Ask a LOCAL LLM to design positive + negative API test scenarios for
-    this ticket/endpoint, GROUNDED in the endpoint's real request/response
-    schema and known error conditions (config/api_specs.json — the mock
-    dataset) rather than guessing field names from a one-line description.
+    """Design positive + negative API test scenarios for this ticket, using a
+    LOCAL LLM. This is the MANDATORY primary path for scenario design — the
+    LLM is what actually reads the ticket's own description and decides what
+    a meaningful positive case and a meaningful negative case look like FOR
+    THIS TICKET, grounded in the endpoint's real request/response schema and
+    known error conditions when one is resolved (config/api_specs.json — the
+    mock dataset), so it isn't left guessing field names.
+
+    This is attempted for EVERY tag, whether or not an endpoint could be
+    resolved — an unresolved tag still gets an LLM-designed scenario set
+    grounded in the ticket text alone, rather than skipping straight to the
+    generic deterministic fallback.
 
     Configured entirely via environment variables so it works with whatever
     local runner you're using:
@@ -493,37 +728,43 @@ def _call_llm_for_scenarios(ticket, tag, resolved):
                       /v1/chat/completions endpoint (LM Studio, vLLM,
                       text-generation-webui, etc.) instead of Ollama's API.
 
-    Returns None (triggering the deterministic fallback in _fallback_scenarios)
-    if the local LLM isn't reachable or replies with something unparsable —
-    generation must never block a run just because the LLM is offline."""
+    Returns None ONLY if the local LLM is genuinely unreachable or replies
+    with something unparsable — this triggers the deterministic fallback in
+    _fallback_scenarios, which is a DEGRADED resilience mode, not the
+    intended path, so a run is never blocked entirely just because the LLM
+    is temporarily offline."""
     llm_url   = os.environ.get("LOCAL_LLM_URL", "http://localhost:11434/api/generate")
     llm_model = os.environ.get("LOCAL_LLM_MODEL", "llama3.1")
     llm_api   = os.environ.get("LOCAL_LLM_API", "ollama").lower()
 
-    endpoint = resolved["endpoint"]
-    schema_lines = "\n".join(
-        f"  - {f['field']} ({f.get('type','string')}, {'required' if f.get('required') else 'optional'}"
-        f"{', query param' if f.get('in')=='query' else ''}): example = {json.dumps(f.get('example'))}"
-        + (f"  [{f['notes']}]" if f.get("notes") else "")
-        for f in endpoint.get("request_schema", [])
-    ) or "  (no request fields)"
-    response_lines = "\n".join(
-        f"  - {f['field']} ({f.get('type','string')})" for f in endpoint.get("success_response", [])
-    ) or "  (no documented response fields)"
-    error_lines = "\n".join(
-        f"  - {e['status']}: {e['trigger']}" for e in endpoint.get("error_cases", [])
-    ) or "  (no documented error cases)"
+    ticket_desc = re.sub('<[^<]+?>', ' ', ticket.get('desc', ''))[:600]
 
-    prompt = f"""You are designing API test scenarios for a Robot Framework RequestsLibrary suite.
+    if resolved:
+        endpoint = resolved["endpoint"]
+        schema_lines = "\n".join(
+            f"  - {f['field']} ({f.get('type','string')}, {'required' if f.get('required') else 'optional'}"
+            f"{', query param' if f.get('in')=='query' else ''}): example = {json.dumps(f.get('example'))}"
+            + (f"  [{f['notes']}]" if f.get("notes") else "")
+            for f in endpoint.get("request_schema", [])
+        ) or "  (no request fields)"
+        response_lines = "\n".join(
+            f"  - {f['field']} ({f.get('type','string')})" for f in endpoint.get("success_response", [])
+        ) or "  (no documented response fields)"
+        error_lines = "\n".join(
+            f"  - {e['status']}: {e['trigger']}" for e in endpoint.get("error_cases", [])
+        ) or "  (no documented error cases)"
+
+        prompt = f"""You are designing API test scenarios for a Robot Framework RequestsLibrary suite.
 Use ONLY the schema below — do not invent field names that aren't listed.
 
 Ticket: {ticket['id']} — {ticket.get('title','')}
-Description: {re.sub('<[^<]+?>', ' ', ticket.get('desc',''))[:600]}
+Description: {ticket_desc}
 
 Application: {resolved['application']}
 Endpoint: {endpoint['method']} {endpoint['path']}
 Endpoint description: {endpoint.get('description','')}
 Requires auth: {endpoint.get('requires_auth', False)}
+Expected status on success: {endpoint.get('success_status', 200)}
 
 Request fields (this is the real schema — use these exact field names):
 {schema_lines}
@@ -534,16 +775,43 @@ Success response fields:
 Known error conditions for this endpoint:
 {error_lines}
 
-Return ONLY a JSON array (no markdown, no prose) of 2-5 test scenario objects, each with:
+You MUST return exactly {1 + len(endpoint.get('error_cases', []))} scenario objects: one positive
+scenario, plus exactly one negative scenario per known error condition listed above — do not
+skip any error condition, and do not add scenarios beyond these. Return ONLY a JSON array (no
+markdown, no prose), each object with:
 - "name": short PascalCase test name (no spaces)
 - "type": "positive" or "negative"
-- "description": one sentence of what it verifies
+- "description": one sentence of what it verifies — tie it back to the ticket's own
+  description where relevant, not a generic statement
 - "payload": a JSON object using ONLY the field names above (or {{}} if none needed)
 - "expected_status": the expected HTTP status code (int), matching one of the known error
-  conditions for negative cases, or 200/201 for the positive case
+  conditions for negative cases, or the endpoint's documented success status above for
+  the positive case — do not assume 200 if a different status was given
 
-Include exactly one positive scenario (all required fields present, valid values) and one
-scenario per known error condition above."""
+Prioritize wording a negative scenario to specifically reproduce the bug described in the
+ticket, if one of the known error conditions matches it."""
+    else:
+        # No resolved endpoint/schema for this tag — still ask the LLM to
+        # reason from the ticket text alone, rather than skipping straight
+        # to the generic template fallback.
+        prompt = f"""You are designing API test scenarios for a Robot Framework RequestsLibrary suite.
+No API schema is available for this tag ("{tag}") yet, so base your scenarios on the ticket
+description alone. Keep field names generic and clearly placeholder (e.g. "field_under_test")
+since there is no confirmed schema to rely on.
+
+Ticket: {ticket['id']} — {ticket.get('title','')}
+Description: {ticket_desc}
+Tag: {tag}
+
+Return ONLY a JSON array (no markdown, no prose) of 2-3 test scenario objects, each with:
+- "name": short PascalCase test name (no spaces)
+- "type": "positive" or "negative"
+- "description": one sentence of what it verifies, tied to the ticket's own description
+- "payload": a small JSON object representative of what this request might need (or {{}})
+- "expected_status": the expected HTTP status code (int) — best guess: 200 for positive,
+  400 for negative
+
+Include at least one positive and one negative scenario."""
 
     try:
         if llm_api == "openai":
@@ -584,8 +852,22 @@ scenario per known error condition above."""
         except json.JSONDecodeError:
             m = re.search(r"\[.*\]", text, re.S)
             scenarios = json.loads(m.group(0)) if m else None
-        if isinstance(scenarios, list) and scenarios:
-            return scenarios
+
+        if not (isinstance(scenarios, list) and scenarios):
+            return None
+
+        # Enforce full error-code coverage when we told the model exactly how
+        # many scenarios to return (i.e. a schema/error_cases list was given).
+        # An LLM that under-delivers despite explicit instructions is treated
+        # as a failed response — better to fall back to the deterministic
+        # generator (which covers every documented error case unconditionally)
+        # than silently ship incomplete coverage.
+        if resolved:
+            required = 1 + len(resolved["endpoint"].get("error_cases", []))
+            if len(scenarios) < required:
+                return None
+
+        return scenarios
     except (urllib.error.URLError, TimeoutError, ValueError, KeyError, json.JSONDecodeError):
         pass
     return None
@@ -609,7 +891,7 @@ def _fallback_scenarios(ticket, tag, resolved):
         "name": "ValidRequest_ReturnsSuccess", "type": "positive",
         "description": f"Verifies {endpoint['method']} {endpoint['path']} succeeds with a valid, fully-formed request.",
         "payload": base_payload, "path": base_path,
-        "expected_status": 200, "auth": requires_auth,
+        "expected_status": endpoint.get("success_status", 200), "auth": requires_auth,
     }]
 
     for case in endpoint.get("error_cases", []):
@@ -628,6 +910,31 @@ def _fallback_scenarios(ticket, tag, resolved):
     return scenarios
 
 
+def _tag_scenario_suites(scenarios):
+    """Categorize scenarios into suites. Every scenario belongs to
+    'functional' (the complete set). A curated subset ALSO belongs to
+    'sanity' — the positive case plus up to 2 of the most critical negative
+    cases (auth/missing-field prioritized over deeper edge cases) — so
+    'sanity' is a real, runnable suite in its own right with both positive
+    and negative coverage, not just the happy path. Mutates and returns
+    the same list, adding a 'suites' key to each scenario dict."""
+    for sc in scenarios:
+        sc["suites"] = ["functional"]
+
+    positives = [sc for sc in scenarios if sc.get("type") == "positive"]
+    negatives = [sc for sc in scenarios if sc.get("type") != "positive"]
+    # Prioritize auth-related negatives (401/403) for the sanity subset —
+    # they're the most likely to catch a real regression cheaply.
+    negatives_sorted = sorted(negatives, key=lambda sc: 0 if sc.get("expected_status") in (401, 403) else 1)
+
+    for sc in positives[:1]:
+        sc["suites"].append("sanity")
+    for sc in negatives_sorted[:2]:
+        sc["suites"].append("sanity")
+
+    return scenarios
+
+
 def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
     """Generate ONE Robot Framework file for this ticket, named after the
     ticket ID (tests/{TICKET_ID}_generated.robot) — not per-tag — covering
@@ -641,20 +948,23 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
 
     Returns the list of new catalog entries (one per generated tag)."""
     ticket_id  = ticket["id"]
-    safe_id    = re.sub(r"[^a-zA-Z0-9_-]+", "_", ticket_id)
-    fname      = f"{safe_id}_generated.robot"
-    fpath      = os.path.join(TESTS_DIR, fname)
+    rel_path   = _canonical_ticket_file(ticket_id)
+    fpath      = os.path.join(BASE, rel_path)
+    rel_csv_path = rel_path.rsplit(".", 1)[0] + ".csv"
 
     sessions   = {}   # application name -> (alias, base_url)
     case_blocks = []
     entries    = []
+    csv_rows   = []  # one row per test case, for the manual-review CSV export
+    tc_counter = 0   # sequential test number across the whole ticket, per user's spec: TC-1, TC-2, TC-3...
 
     for tag in missing_tags:
         safe_tag = re.sub(r"[^a-zA-Z0-9_]+", "_", tag.strip().lower()).strip("_") or "case"
         resolved = _resolve_endpoint(tag, region, env)
-        llm_scenarios = _call_llm_for_scenarios(ticket, tag, resolved) if resolved else None
+        llm_scenarios = _call_llm_for_scenarios(ticket, tag, resolved)
         scenarios     = llm_scenarios or _fallback_scenarios(ticket, tag, resolved)
         generated_via = "llm" if llm_scenarios else "template"
+        scenarios     = _tag_scenario_suites(scenarios)
 
         base_url = resolved["base_url"] if resolved else "https://api.example.com"
         endpoint = resolved["endpoint"] if resolved else {"method": "GET", "path": "/api/v1/unknown", "description": ""}
@@ -670,43 +980,94 @@ def _generate_ticket_script(ticket, missing_tags, region="US", env="DEV"):
                      "DELETE": "Delete On Session", "PATCH": "Patch On Session"}.get(method, "Get On Session")
 
         for sc in scenarios:
+            tc_counter += 1
+            tc_number = f"TC-{tc_counter}"
+            sc["tcNumber"] = tc_number
             name = re.sub(r"[^a-zA-Z0-9_]+", "_", sc.get("name", "Scenario")).strip("_")
             case_name = f"{ticket_id}_{safe_tag.capitalize()}_{name}"
             sc_path  = sc.get("path", ep_path)
             use_auth = sc.get("auth", True)
-            header_kw   = "    &{headers}=    Create Dictionary    Authorization=Bearer mock-token\n" if use_auth else ""
-            headers_arg = "    headers=${headers}" if use_auth else ""
+            origin_tag  = "llm-generated" if generated_via == "llm" else "template-fallback"
+            origin_note = ("Scenario designed by the local LLM." if generated_via == "llm" else
+                           "DEGRADED: local LLM unreachable/unparsable -- generic deterministic "
+                           "template used instead. Not tailored to this ticket's description.")
+            suite_tags = "    ".join(sc["suites"])
 
-            payload = sc.get("payload")
-            if payload is not None and method in ("POST", "PUT", "PATCH"):
+            payload  = sc.get("payload")
+            has_body = payload is not None and method in ("POST", "PUT", "PATCH")
+
+            # Build the headers dict. IMPORTANT: when there's a request body we
+            # send it via data= (see below), which — unlike RequestsLibrary's
+            # json= argument — does NOT set Content-Type automatically, so it
+            # must be set explicitly here or the mock won't parse the body as JSON.
+            header_pairs = []
+            if has_body:
+                header_pairs.append("Content-Type=application/json")
+            if use_auth:
+                header_pairs.append("Authorization=Bearer mock-token")
+            if header_pairs:
+                header_kw   = f"    &{{headers}}=    Create Dictionary    {'    '.join(header_pairs)}\n"
+                headers_arg = "    headers=${headers}"
+            else:
+                header_kw   = ""
+                headers_arg = ""
+
+            if has_body:
+                # data= (NOT json=) sends this string on the wire exactly as
+                # written. Using json= here would pass Robot Framework's plain
+                # -text argument through as a STRING (not a real dict), and
+                # the requests library then double-JSON-encodes it — the
+                # server receives a JSON string instead of a JSON object, and
+                # any body.get(...) call crashes with
+                # "AttributeError: 'str' object has no attribute 'get'".
+                # separators=(",",":") keeps this a single Robot Framework
+                # cell (no spaces to be misread as a cell boundary).
+                json_str = json.dumps(payload, separators=(",", ":"))
                 body_line = (f"{header_kw}"
                              f"    ${{resp}}=    {method_kw}    {alias}    {sc_path}"
-                             f"    json={json.dumps(payload)}{headers_arg}    expected_status=any")
+                             f"    data={json_str}{headers_arg}    expected_status=any")
             else:
                 body_line = (f"{header_kw}"
                              f"    ${{resp}}=    {method_kw}    {alias}    {sc_path}{headers_arg}    expected_status=any")
 
             case_blocks.append(f"""{case_name}
-    [Documentation]    {sc.get('description','')}
-    [Tags]    {sc.get('type','positive')}    {safe_tag}    {ticket_id}
+    [Documentation]    {tc_number}: {sc.get('description','')}
+    ...                {origin_note}
+    [Tags]    {tc_number}    {suite_tags}    {sc.get('type','positive')}    {safe_tag}    {ticket_id}    {origin_tag}
 {body_line}
     Status Should Be    {sc.get('expected_status', 200)}    ${{resp}}
 """)
 
+            csv_rows.append({
+                "TC No":         tc_number,
+                "Description":   sc.get("description", ""),
+                "Type of Test":  (sc.get("type") or "positive").capitalize(),
+                "Sanity":        "Yes" if "sanity" in sc["suites"] else "No",
+                "Functional":    "Yes" if "functional" in sc["suites"] else "No",
+            })
+
         entries.append({
-            "tag": tag, "name": f"{ticket_id}_{safe_tag.capitalize()}_Suite", "file": f"tests/{fname}",
+            "tag": tag, "name": f"{ticket_id}_{safe_tag.capitalize()}_Suite", "file": rel_path,
             "suite": "Generated", "generatedFor": ticket_id, "generatedAt": _now(),
             "application": app_name, "endpoint": f"{method} {ep_path}", "baseUrl": base_url,
-            "scenarios": [{"name": s.get("name"), "type": s.get("type")} for s in scenarios],
-            "generatedVia": generated_via,
+            "scenarios": [{"name": s.get("name"), "type": s.get("type"),
+                           "tcNumber": s.get("tcNumber"), "suites": s.get("suites")} for s in scenarios],
+            "generatedVia": generated_via, "testPlanCsv": rel_csv_path,
         })
 
+    llm_tags      = [t for t in missing_tags if any(e["tag"] == t and e["generatedVia"] == "llm" for e in entries)]
+    template_tags = [t for t in missing_tags if t not in llm_tags]
+    origin_summary = (
+        f"LLM-designed scenarios for: {', '.join(llm_tags) or '(none)'}. "
+        f"Template-fallback (degraded) for: {', '.join(template_tags) or '(none)'}."
+    )
     setup_lines = "\n".join(f"    Create Session    {alias}    {url}" for alias, url in sessions.values())
     content = f"""*** Settings ***
 Documentation    Auto-generated by AutoBot for ticket {ticket_id} - {ticket.get('title','')}
 ...              Covers tag(s) with no existing coverage: {', '.join(missing_tags)}
 ...              Resolved against config/api_specs.json and generated positive +
 ...              negative scenarios per tag.
+...              {origin_summary}
 Library          RequestsLibrary
 Library          Collections
 Suite Setup      Initialize Sessions
@@ -722,6 +1083,14 @@ Initialize Sessions
     os.makedirs(TESTS_DIR, exist_ok=True)
     with open(fpath, "w", encoding="utf-8", newline="\n") as f:
         f.write(content)
+
+    # Manual-review CSV export — one row per test case, same base filename
+    # as the .robot file (tests/{TICKET_ID}_generated.csv).
+    csv_path = os.path.join(BASE, rel_csv_path)
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["TC No", "Description", "Type of Test", "Sanity", "Functional"])
+        writer.writeheader()
+        writer.writerows(csv_rows)
 
     # Replace any previous entries generated for THIS ticket (a re-run
     # regenerates cleanly) — leave every other ticket's/tag's entries alone.
@@ -784,9 +1153,24 @@ def _parse_output_xml():
         execution_state["failures"] = failures
 
 
-def _demo_result():
-    """Generate realistic demo results when Robot Framework is absent."""
+def _demo_result(test_name=None):
+    """Generate realistic demo results when Robot Framework is absent.
+    test_name: if set, simulate running ONLY that single test case (as a
+    real --test-scoped run would) instead of a random full-suite result."""
     import random
+    if test_name:
+        # Single-test mode: this test was known to be failing (that's why a
+        # bug was raised for it) — simulate a realistic re-run of just it.
+        with _state_lock:
+            execution_state.update({
+                "total": 1, "passed": 0, "failed": 1, "skipped": 0,
+                "failures": [{
+                    "name": test_name,
+                    "message": "AssertionError: Expected 200 but got 400. (re-run of the originally failed test)",
+                }],
+            })
+        return
+
     total   = random.randint(12, 40)
     failed  = random.randint(0, min(5, total // 5))
     skipped = random.randint(0, 2)
@@ -839,17 +1223,73 @@ def run_robot_tests(test_type, region, env, user, target_files=None):
     _execute_robot(test_type, region, env, user, target_files)
 
 
-def _execute_robot(test_type, region, env, user, target_files=None):
+def _preflight_check():
+    """Fast check that the libraries our generated scripts depend on are
+    actually importable, before handing off to Robot Framework. Catches the
+    #1 confusing failure mode: 'pip install requests' (the plain HTTP
+    library) instead of 'pip install robotframework-requests' (the Robot
+    Framework wrapper that actually provides RequestsLibrary's keywords,
+    like Create Session). Without this check, that mistake surfaces as a
+    cryptic 'No keyword with name Create Session found' deep in a suite
+    setup failure instead of a clear, actionable message."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", "import RequestsLibrary"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return ("RequestsLibrary isn't installed (or failed to import) in this Python "
+                    "environment. This is what causes \"No keyword with name 'Create Session' "
+                    "found\". Fix: pip install robotframework-requests  "
+                    "(NOT just 'pip install requests' — that's a different package and won't "
+                    f"provide Robot Framework keywords). Import error: {result.stderr.strip()[:300]}")
+    except FileNotFoundError:
+        return None  # can't even find python/robot — the existing demo-fallback path handles this
+    except subprocess.TimeoutExpired:
+        return None  # don't block a run over a slow environment check
+    return None
+
+
+def _execute_robot(test_type, region, env, user, target_files=None, test_name=None, suite_filter=None):
     """The actual subprocess/parse/demo-fallback core, shared by both
     suite-based and ticket-based runs. Assumes execution_state["status"] is
-    already "running" and "started_at" already set by the caller."""
+    already "running" and "started_at" already set by the caller.
+
+    test_name: if set, only this single Robot Framework test case is run
+    (via --test) within target_files — used when a bug ticket is linked to
+    one specific failed test, so re-running it doesn't re-run the parent's
+    entire suite.
+
+    suite_filter: "sanity" or "functional" — filters WITHIN target_files to
+    only the test cases tagged with that suite (see _tag_scenario_suites).
+    Mutually exclusive with test_name in practice (a single-test delegation
+    run doesn't need suite filtering on top)."""
     if target_files:
+        preflight_error = _preflight_check()
+        if preflight_error:
+            finished = datetime.utcnow()
+            started  = datetime.fromisoformat(execution_state["started_at"])
+            duration = round((finished - started).total_seconds(), 1)
+            with _state_lock:
+                execution_state.update({
+                    "status": "completed", "stage": "completed", "mode": "error",
+                    "total": 0, "passed": 0, "failed": 0, "skipped": 0,
+                    "failures": [{"name": "ENVIRONMENT_ERROR", "message": preflight_error}],
+                    "finished_at": finished.isoformat(), "duration_s": duration,
+                })
+            return
+
         cmd = [
             sys.executable, "-m", "robot",
             "--outputdir", RESULTS_DIR,
             "--variable",  f"REGION:{region}",
             "--variable",  f"ENV:{env}",
-        ] + target_files
+        ]
+        if test_name:
+            cmd += ["--test", test_name]
+        elif suite_filter:
+            cmd += ["--include", suite_filter.lower()]
+        cmd += target_files
     else:
         cmd = [
             sys.executable, "-m", "robot",
@@ -870,11 +1310,11 @@ def _execute_robot(test_type, region, env, user, target_files=None):
             # machine — use demo data so the UI still gets a result instead
             # of an empty 0/0/0 run. This is clearly marked, not silently
             # passed off as a genuine execution.
-            _demo_result()
+            _demo_result(test_name)
             with _state_lock:
                 execution_state["mode"] = "demo"
     except FileNotFoundError:
-        _demo_result()
+        _demo_result(test_name)
         with _state_lock:
             execution_state["mode"] = "demo"
     except subprocess.TimeoutExpired:
@@ -924,39 +1364,107 @@ def _execute_robot(test_type, region, env, user, target_files=None):
               "fail" if execution_state["failed"] > 0 else "pass")
 
 
-def _run_ticket_pipeline(ticket_id, region, env, user):
+def _run_ticket_pipeline(ticket_id, region, env, user, suite=None):
     """The full ticket-based run, entirely inside a background thread so the
     HTTP request that triggered it (POST /confirm_run or
     POST /api/tickets/<id>/run) returns almost immediately — the caller
     should NOT block on this. Progress is reported via execution_state,
     which the frontend polls (GET /status): stage moves
     'understanding' -> 'generating' (only if needed) -> 'executing' -> done.
-    This is what fixes runs appearing to 'hang' — before, the understand +
-    generate step ran synchronously inside the request handler, so a slow
-    local LLM call meant the client's fetch() just sat there with no
-    visible progress at all."""
+
+    ticket_id may resolve to EITHER a genuine ticket in tickets.json OR a
+    bug in bugs.json (via _find_runnable) — bugs are never written into
+    tickets.json, so this must never assume tk came from tickets.json.
+
+    suite: "sanity" or "functional" — which generated suite to actually
+    execute (see _tag_scenario_suites). Generation always produces both;
+    this only filters which tagged test cases run. If not provided,
+    defaults to "functional" (the complete set) so a run never silently
+    does less than expected."""
+    suite = (suite or "functional").lower()
     with _state_lock:
         execution_state.update({
             "status": "running", "stage": "understanding",
             "total": 0, "passed": 0, "failed": 0, "skipped": 0,
             "test_type": ticket_id, "region": region, "env": env, "user": user,
-            "mode": None, "analysis": None,
+            "mode": None, "analysis": None, "suite": suite,
             "started_at": _now(), "finished_at": None, "duration_s": 0,
             "failures": [],
         })
-    _add_feed(user, f"started {ticket_id} · {region} · {env}", "run")
+    _add_feed(user, f"started {ticket_id} · {region} · {env} · suite={suite}", "run")
 
-    tickets = _load_tickets()
-    idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
-    if idx is None:
+    tk, kind = _find_runnable(ticket_id)
+    if not tk:
         with _state_lock:
             execution_state["status"] = "completed"
             execution_state["stage"] = "completed"
             execution_state["finished_at"] = _now()
-            execution_state["failures"].append({"name": "TICKET_NOT_FOUND", "message": f"{ticket_id} not found."})
+            execution_state["failures"].append({
+                "name": "TICKET_NOT_FOUND",
+                "message": f"{ticket_id} not found in tickets.json or bugs.json.",
+            })
         return
-    tk = tickets[idx]
 
+    # ── BUG DELEGATION ──────────────────────────────────────────────────
+    # A bug never has its own script — it always delegates to its parent
+    # ticket's existing coverage. If there's no usable parent, we stop here
+    # with a clear reason rather than falling through to a "normal ticket"
+    # generate/run flow that would have nothing real to generate against
+    # (and would risk writing bug data into tickets.json at the wrong index).
+    if kind == "bug":
+        parent_id = tk.get("parentTicket")
+        parent, _ = _find_runnable(parent_id) if parent_id else (None, None)
+
+        if not parent:
+            note = (f"AutoBot: {ticket_id} has no valid parent ticket to delegate to "
+                    f"(suite was '{parent_id or '(none)'}'). Nothing to run.")
+            _save_runnable_comment(ticket_id, kind, note)
+            with _state_lock:
+                execution_state["status"] = "completed"
+                execution_state["stage"] = "completed"
+                execution_state["finished_at"] = _now()
+                execution_state["analysis"] = {"matchedTests": [], "generated": [], "note": note}
+                execution_state["failures"].append({"name": "NO_PARENT_TICKET", "message": note})
+            return
+
+        p_matched, p_missing = _analyze_ticket(parent)
+        if not p_matched or p_missing:
+            note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id}, but "
+                    f"{parent_id} has no existing test coverage yet. Run {parent_id} first, "
+                    f"then retry this bug ticket.")
+            _save_runnable_comment(ticket_id, kind, note)
+            with _state_lock:
+                execution_state["status"] = "completed"
+                execution_state["stage"] = "completed"
+                execution_state["finished_at"] = _now()
+                execution_state["analysis"] = {"matchedTests": [], "generated": [], "note": note}
+                execution_state["failures"].append({"name": "PARENT_NOT_COVERED", "message": note})
+            return
+
+        failed_test = tk.get("failedTestCase")
+        if failed_test:
+            note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
+                    f"re-running ONLY the failed test case '{failed_test}' from "
+                    f"{parent_id}'s existing suite, not the full suite.")
+        else:
+            note = (f"AutoBot: {ticket_id} is linked to parent ticket {parent_id} - "
+                    f"reusing its existing test case ({', '.join(m['name'] for m in p_matched)}) "
+                    f"instead of generating a new one. No specific failed test was recorded, "
+                    f"so the full suite runs.")
+        _save_runnable_comment(ticket_id, kind, note)
+
+        with _state_lock:
+            execution_state["analysis"] = {
+                "matchedTests": p_matched, "generated": [], "note": note,
+                "delegatedTo": parent_id, "singleTest": failed_test,
+            }
+            execution_state["stage"] = "executing"
+        target_files = list(dict.fromkeys(os.path.join(BASE, e["file"]) for e in p_matched))
+        _execute_robot(ticket_id, region, env, user, target_files, test_name=failed_test,
+                        suite_filter=None if failed_test else suite)
+        return
+
+    # ── NORMAL TICKET FLOW (kind == "ticket") ────────────────────────────
     matched, missing = _analyze_ticket(tk)
     if missing:
         with _state_lock:
@@ -967,29 +1475,33 @@ def _run_ticket_pipeline(ticket_id, region, env, user):
 
     if generated:
         gen_desc = ", ".join(
-            f"{g['name']} ({g.get('application','?')} → {g.get('endpoint','?')}, "
+            f"{g['name']} ({g.get('application','?')} \u2192 {g.get('endpoint','?')}, "
             f"{len(g.get('scenarios', []))} scenarios, via {g.get('generatedVia','template')})"
             for g in generated
         )
-        note = (f"🤖 AutoBot: no existing test case for tag(s) "
-                f"[{', '.join(missing)}] — generated {gen_desc} before running.")
+        csv_paths = sorted(set(g.get("testPlanCsv") for g in generated if g.get("testPlanCsv")))
+        degraded = [g["tag"] for g in generated if g.get("generatedVia") != "llm"]
+        note = (f"AutoBot: no existing test case for tag(s) "
+                f"[{', '.join(missing)}] - generated {gen_desc} before running. "
+                f"Test plan for manual review: {', '.join(csv_paths)}")
+        if degraded:
+            note += (f" WARNING: tag(s) [{', '.join(degraded)}] used the DETERMINISTIC "
+                     f"TEMPLATE fallback, not the LLM - the local LLM was unreachable or "
+                     f"returned something unparsable. This is a degraded result; the "
+                     f"scenarios are generic, not tailored to this ticket's actual "
+                     f"description. Check LOCAL_LLM_URL / that your local LLM is running.")
     else:
-        note = f"🤖 AutoBot: matched existing test case(s) — {', '.join(m['name'] for m in matched)}." \
-               if matched else "🤖 AutoBot: no tags to resolve — running as-is."
+        note = (f"AutoBot: matched existing test case(s) - {', '.join(m['name'] for m in matched)}."
+                if matched else "AutoBot: no tags to resolve - running as-is.")
 
-    tk.setdefault("comments", []).append({
-        "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
-        "time": "Just now", "content": note, "isBot": True, "avatar": "#4f8ef7",
-    })
-    tickets[idx] = tk
-    _save_tickets(tickets)
+    _save_runnable_comment(ticket_id, kind, note)
 
     with _state_lock:
         execution_state["analysis"] = {"matchedTests": matched, "generated": generated, "note": note}
         execution_state["stage"] = "executing"
 
-    target_files = [os.path.join(BASE, e["file"]) for e in (matched + generated)]
-    _execute_robot(ticket_id, region, env, user, target_files)
+    target_files = list(dict.fromkeys(os.path.join(BASE, e["file"]) for e in (matched + generated)))
+    _execute_robot(ticket_id, region, env, user, target_files, suite_filter=suite)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1081,6 +1593,7 @@ def confirm_run():
     params    = data.get("params", {})
     user      = data.get("user", "unknown")
     ticket_id = data.get("ticketId")
+    ticket_suite = data.get("ticketSuite")   # "sanity" or "functional" — ticket-run suite choice
     test_type = params.get("test_type", "Sanity")
     region    = params.get("region", "US")
     env       = params.get("env", "DEV")
@@ -1092,9 +1605,10 @@ def confirm_run():
     # immediately; poll GET /status for "stage" (understanding -> generating
     # -> executing) and the "analysis" field once it's ready.
     if ticket_id:
-        t = threading.Thread(target=_run_ticket_pipeline, args=(ticket_id, region, env, user), daemon=True)
+        t = threading.Thread(target=_run_ticket_pipeline,
+                              args=(ticket_id, region, env, user, ticket_suite), daemon=True)
         t.start()
-        return _ok({"status": "started", "ticketId": ticket_id})
+        return _ok({"status": "started", "ticketId": ticket_id, "suite": ticket_suite or "functional"})
 
     # ── Suite-based run (no ticket) ─────────────────────────────────────
     t = threading.Thread(target=run_robot_tests, args=(test_type, region, env, user), daemon=True)
@@ -1110,6 +1624,23 @@ def get_status():
 # ══════════════════════════════════════════════════════════════════════════════
 #  ROUTES — RESULTS
 # ══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/tickets/<ticket_id>/test-plan.csv")
+def download_test_plan(ticket_id):
+    """Download the CSV test-plan export for a ticket's generated test
+    cases (TC No, Description, Type of Test, Sanity, Functional) — for
+    manual review. 404 if nothing has been generated for this ticket yet
+    (run it first)."""
+    t, kind = _find_runnable(ticket_id)
+    if not t:
+        return _err(f"{ticket_id} not found.", 404)
+    rel_csv  = _canonical_ticket_file(ticket_id).rsplit(".", 1)[0] + ".csv"
+    csv_path = os.path.join(BASE, rel_csv)
+    if not os.path.exists(csv_path):
+        return _err(f"No test plan has been generated yet for {ticket_id}. Run it first.", 404)
+    return send_file(csv_path, mimetype="text/csv", as_attachment=True,
+                      download_name=f"{ticket_id}_test_plan.csv")
+
 
 @app.route("/results/<path:filename>")
 def serve_results(filename):
@@ -1168,10 +1699,13 @@ def save_run():
 @app.route("/api/tickets", methods=["GET"])
 def list_tickets():
     tickets = _load_tickets()
+    bugs = _load(BUGS_FILE, [])
+    virtual = [_bug_to_virtual_ticket(b) for b in bugs]
+    combined = virtual + tickets   # newest bugs first, most relevant to surface
     status  = request.args.get("status")
     if status:
-        tickets = [t for t in tickets if t.get("status", "").lower() == status.lower()]
-    return _ok({"tickets": tickets, "total": len(tickets)})
+        combined = [t for t in combined if t.get("status", "").lower() == status.lower()]
+    return _ok({"tickets": combined, "total": len(combined)})
 
 
 @app.route("/api/tickets", methods=["POST"])
@@ -1206,8 +1740,9 @@ def create_ticket():
         "severity":   data.get("severity", "None"),
         "labels":     data.get("labels", "None"),
         "comments":   [],
-        "created":    "Just now",
-        "updated":    "Just now",
+        "likes":      [],
+        "created":    _display_time(),
+        "updated":    _display_time(),
         "testResults": None,
         "source":     data.get("source", "jira"),  # 'jira' or 'portal'
     }
@@ -1219,8 +1754,7 @@ def create_ticket():
 
 @app.route("/api/tickets/<ticket_id>", methods=["GET"])
 def get_ticket(ticket_id):
-    tickets = _load_tickets()
-    t = next((t for t in tickets if t.get("id") == ticket_id), None)
+    t, kind = _find_runnable(ticket_id)
     if not t:
         return _err(f"{ticket_id} not found.", 404)
     return _ok({"ticket": t})
@@ -1237,14 +1771,85 @@ def update_ticket(ticket_id):
         return _err(f"{ticket_id} not found.", 404)
 
     allowed = {"status", "assignee", "comments", "testResults", "priority",
-               "urgency", "severity", "labels", "robotTags"}
+               "urgency", "severity", "labels", "robotTags", "likes"}
     for key in allowed:
         if key in data:
             tickets[idx][key] = data[key]
-    tickets[idx]["updated"] = "Just now"
+    tickets[idx]["updated"] = _display_time()
 
     _save_tickets(tickets)
     return _ok({"ticket": tickets[idx]})
+
+
+@app.route("/api/tickets/<ticket_id>/like", methods=["POST"])
+def toggle_like(ticket_id):
+    """Toggle the current user's like. Idempotent per-user — liking twice
+    un-likes. Works for both a genuine ticket (tickets.json) and a bug
+    (bugs.json) — resolved via _find_runnable, written back to whichever
+    store it actually came from."""
+    body = request.get_json(silent=True) or {}
+    user = request.args.get("username") or body.get("user")
+    if not user:
+        return _err("username is required.", 400)
+
+    t, kind = _find_runnable(ticket_id)
+    if not t:
+        return _err(f"{ticket_id} not found.", 404)
+
+    if kind == "ticket":
+        tickets = _load_tickets()
+        idx = next(i for i, x in enumerate(tickets) if x.get("id") == ticket_id)
+        likes = tickets[idx].setdefault("likes", [])
+        liked = user not in likes
+        likes.remove(user) if user in likes else likes.append(user)
+        _save_tickets(tickets)
+    else:  # kind == "bug"
+        bugs = _load(BUGS_FILE, [])
+        idx = next(i for i, b in enumerate(bugs)
+                   if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id)
+        likes = bugs[idx].setdefault("likes", [])
+        liked = user not in likes
+        likes.remove(user) if user in likes else likes.append(user)
+        _save(BUGS_FILE, bugs)
+
+    return _ok({"ticketId": ticket_id, "liked": liked, "likes": likes, "count": len(likes)})
+
+
+@app.route("/api/tickets/<ticket_id>/comments", methods=["POST"])
+def add_comment(ticket_id):
+    """Append a single comment. Works for both a genuine ticket
+    (tickets.json) and a bug (bugs.json) — resolved via _find_runnable,
+    written back to whichever store it actually came from."""
+    body = request.get_json(silent=True) or {}
+    user = request.args.get("username") or body.get("user")
+    text = (body.get("content") or "").strip()
+    if not user or not text:
+        return _err("user and content are required.", 400)
+
+    t, kind = _find_runnable(ticket_id)
+    if not t:
+        return _err(f"{ticket_id} not found.", 404)
+
+    comment = {
+        "id": int(datetime.utcnow().timestamp() * 1000), "author": user,
+        "time": _display_time(), "content": text, "isBot": False, "avatar": "#6554c0",
+    }
+    if kind == "ticket":
+        tickets = _load_tickets()
+        idx = next(i for i, x in enumerate(tickets) if x.get("id") == ticket_id)
+        tickets[idx].setdefault("comments", []).append(comment)
+        tickets[idx]["updated"] = _display_time()
+        _save_tickets(tickets)
+        all_comments = tickets[idx]["comments"]
+    else:  # kind == "bug"
+        bugs = _load(BUGS_FILE, [])
+        idx = next(i for i, b in enumerate(bugs)
+                   if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id)
+        bugs[idx].setdefault("comments", []).append(comment)
+        _save(BUGS_FILE, bugs)
+        all_comments = bugs[idx]["comments"]
+
+    return _ok({"ticketId": ticket_id, "comment": comment, "comments": all_comments}, 201)
 
 
 @app.route("/api/test-catalog", methods=["GET"])
@@ -1265,8 +1870,7 @@ def get_api_specs():
 def analyze_ticket(ticket_id):
     """Collect ticket details and decide what needs testing — no side effects.
     Used by chat.html to show its reasoning before running or generating anything."""
-    tickets = _load_tickets()
-    t = next((t for t in tickets if t.get("id") == ticket_id), None)
+    t, kind = _find_runnable(ticket_id)
     if not t:
         return _err(f"{ticket_id} not found.", 404)
 
@@ -1294,6 +1898,7 @@ def analyze_ticket(ticket_id):
         "missingTags": missing,
         "generationPreview": previews,
         "needsGeneration": len(missing) > 0,
+        "availableSuites": ["sanity", "functional"],
     })
 
 
@@ -1308,24 +1913,48 @@ def run_ticket_script(ticket_id):
     if execution_state.get("status") == "running":
         return _err("A run is already in progress.", 409)
 
-    tickets = _load_tickets()
-    if not any(t.get("id") == ticket_id for t in tickets):
+    t, kind = _find_runnable(ticket_id)
+    if not t:
         return _err(f"{ticket_id} not found.", 404)
 
     body   = request.get_json(silent=True) or {}
     user   = request.args.get("username") or body.get("user", "unknown")
     region = (request.args.get("region") or body.get("region") or "US").upper()
     env    = (request.args.get("env")    or body.get("env")    or "INT").upper()
+    suite  = request.args.get("suite")   or body.get("suite")   # "sanity" or "functional"
 
-    thread = threading.Thread(target=_run_ticket_pipeline, args=(ticket_id, region, env, user), daemon=True)
+    thread = threading.Thread(target=_run_ticket_pipeline, args=(ticket_id, region, env, user, suite), daemon=True)
     thread.start()
 
-    return _ok({"status": "started", "ticketId": ticket_id})
+    return _ok({"status": "started", "ticketId": ticket_id, "suite": suite or "functional"})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ROUTES — JIRA / BUG REGISTRY  (proxies to Spring Boot)
 # ══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/registry/check", methods=["GET"])
+def check_bug():
+    """Duplicate-check before raising a bug — used by the manual 'Report Bug'
+    modal in chat.html. Mirrors the dedup logic already in raise_bug()."""
+    test_name = (request.args.get("testName") or "").strip()
+    if not test_name:
+        return _ok({"canRaise": True})
+    bugs = _load(BUGS_FILE, [])
+    existing = next((b for b in bugs if b["testCaseName"] == test_name), None)
+    if existing:
+        resp = {
+            "canRaise": False, "jiraKey": existing["jiraKey"],
+            "raisedBy": existing["raisedBy"],
+            "message": f"A bug for '{test_name}' is already open ({existing['jiraKey']}).",
+        }
+        if existing.get("suite"):
+            bug_id = _bug_ticket_id_from_key(existing["jiraKey"])
+            resp["bugTicket"] = bug_id
+            resp["message"] += f" Run it via ticket {bug_id}."
+        return _ok(resp)
+    return _ok({"canRaise": True})
+
 
 @app.route("/api/registry/raise", methods=["POST"])
 def raise_bug():
@@ -1366,7 +1995,12 @@ def raise_bug():
             _persist_bug(sb_data.get("jiraKey", ""), test_name, error_msg,
                          env, priority, epic, suite, username, sb_data.get("status", "success"))
             _add_feed(username, f"raised bug {sb_data.get('jiraKey','')} — {test_name}", "bug")
-            return _ok(sb_data)
+            resp_data = dict(sb_data)
+            # bugTicket is only meaningful if 'suite' is a real parent ticket ID —
+            # _find_runnable resolves it dynamically from bugs.json, nothing is persisted here.
+            if suite:
+                resp_data["bugTicket"] = _bug_ticket_id_from_key(sb_data.get("jiraKey", ""))
+            return _ok(resp_data)
     except Exception:
         pass  # Spring Boot not running — fall through to local logic
 
@@ -1376,16 +2010,127 @@ def raise_bug():
         (b for b in bugs if b["testCaseName"] == test_name and b["env"] == env), None
     )
     if existing:
-        return _ok({
+        resp = {
             "status":  "EXISTS",
             "jiraKey": existing["jiraKey"],
             "user":    existing["raisedBy"],
-        })
+        }
+        if existing.get("suite"):
+            resp["bugTicket"] = _bug_ticket_id_from_key(existing["jiraKey"])
+        return _ok(resp)
 
     jira_key = f"QA-{1000 + len(bugs) + 1}"
     _persist_bug(jira_key, test_name, error_msg, env, priority, epic, suite, username, "success")
     _add_feed(username, f"raised bug {jira_key} — {test_name}", "bug")
-    return _ok({"status": "success", "jiraKey": jira_key, "user": username})
+    resp = {"status": "success", "jiraKey": jira_key, "user": username}
+    if suite:
+        resp["bugTicket"] = _bug_ticket_id_from_key(jira_key)
+    return _ok(resp)
+
+
+def _bug_ticket_id_from_key(bug_key):
+    """Derive the runnable ticket ID directly from the bug's own key, so the
+    two are always trivially traceable to each other — bug QA-1233 always
+    resolves to ID BUG-1233, never an unrelated number from a separate
+    counter. This ID is NEVER persisted as a real ticket — it's computed
+    fresh every time from bugs.json (see _find_runnable)."""
+    m = re.search(r"(\d+)\s*$", bug_key or "")
+    num = m.group(1) if m else str(int(datetime.utcnow().timestamp()))[-6:]
+    return f"BUG-{num}"
+
+
+def _bug_to_virtual_ticket(bug):
+    """Build a ticket-shaped VIEW of a bug record, computed fresh from
+    bugs.json every time it's needed — this is NEVER written to
+    tickets.json. bugs.json is the single source of truth for bug data;
+    tickets.json only ever holds genuine tickets. This is what makes it
+    impossible for a new bug to collide with a stale, previously-persisted
+    bug-ticket of the same ID — there's nothing to collide with, since
+    nothing is ever persisted."""
+    bug_key   = bug.get("jiraKey", "")
+    test_name = bug.get("testCaseName", "")
+    parent_id = bug.get("suite", "")
+    # A generic run-level name (e.g. "IT-6_AutomationRun") isn't a real Robot
+    # Framework test case we could target with --test — only trust names
+    # that don't match that catch-all pattern.
+    is_specific_test = bool(test_name) and not test_name.endswith("_AutomationRun")
+    return {
+        "id": _bug_ticket_id_from_key(bug_key), "title": f"Bug: {test_name}", "status": "Open",
+        "priority": bug.get("priority", "High"), "urgency": bug.get("priority", "High"),
+        "impact": "Moderate / Limited", "service": "General",
+        "reporter": bug.get("raisedBy", "unknown"), "assignee": None,
+        "desc": bug.get("errorMessage") or f"Failure raised from a run of {parent_id}.",
+        "robotTags": [], "reqType": "Report a system problem",
+        "severity": bug.get("priority", "High"), "labels": "linked-bug",
+        "failedTestCase": test_name if is_specific_test else None,
+        "comments": bug.get("comments", []), "likes": bug.get("likes", []),
+        "created": bug.get("time", ""), "updated": bug.get("time", ""), "testResults": None,
+        "parentTicket": parent_id, "linkedBugKey": bug_key, "isBug": True,
+    }
+
+
+def _find_runnable(ticket_id):
+    """Resolve a runnable 'ticket' by ID from EITHER store: a genuine
+    ticket in tickets.json, or a bug in bugs.json whose derived ID (see
+    _bug_ticket_id_from_key) matches. Every route that looks up a ticket by
+    ID for viewing/running/analyzing MUST go through this, not a direct
+    tickets.json lookup, or bug IDs like 'BUG-1001' will incorrectly
+    report 'not found' even though the bug is genuinely raised and runnable.
+
+    For any ID matching the BUG- pattern, bugs.json is checked FIRST. This
+    matters even after the design change that stopped persisting bugs into
+    tickets.json: a server that raised bugs under the OLD design may still
+    have stale BUG-N entries sitting in tickets.json, and a fresh bug can
+    legitimately compute to that same ID later. Without this ordering, the
+    stale ticket would be found first and silently shadow the real,
+    current bug data — exactly the bug this fixes. Genuine tickets never
+    use the BUG- prefix (_next_ticket_id defaults to IT-), so this never
+    affects a normal ticket lookup.
+
+    Returns (ticket_dict, kind) where kind is "ticket" or "bug", or
+    (None, None) if the ID exists in neither store."""
+    tickets = _load_tickets()
+    bugs = _load(BUGS_FILE, [])
+
+    if ticket_id.upper().startswith("BUG-"):
+        for b in bugs:
+            if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id:
+                return _bug_to_virtual_ticket(b), "bug"
+        t = next((t for t in tickets if t.get("id") == ticket_id), None)
+        return (t, "ticket") if t else (None, None)
+
+    t = next((t for t in tickets if t.get("id") == ticket_id), None)
+    if t:
+        return t, "ticket"
+    for b in bugs:
+        if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id:
+            return _bug_to_virtual_ticket(b), "bug"
+    return None, None
+
+
+def _save_runnable_comment(ticket_id, kind, note):
+    """Persist an AutoBot comment back to wherever this thing actually
+    lives — the ticket's own comments in tickets.json for a real ticket, or
+    the bug record's comments in bugs.json for a bug. Bugs never get a
+    comment written into tickets.json under this design."""
+    comment = {
+        "id": int(datetime.utcnow().timestamp() * 1000), "author": "AutoBot",
+        "time": _display_time(), "content": note, "isBot": True, "avatar": "#4f8ef7",
+    }
+    if kind == "ticket":
+        tickets = _load_tickets()
+        idx = next((i for i, t in enumerate(tickets) if t.get("id") == ticket_id), None)
+        if idx is not None:
+            tickets[idx].setdefault("comments", []).append(comment)
+            tickets[idx]["updated"] = _display_time()
+            _save_tickets(tickets)
+    elif kind == "bug":
+        bugs = _load(BUGS_FILE, [])
+        idx = next((i for i, b in enumerate(bugs)
+                    if _bug_ticket_id_from_key(b.get("jiraKey", "")) == ticket_id), None)
+        if idx is not None:
+            bugs[idx].setdefault("comments", []).append(comment)
+            _save(BUGS_FILE, bugs)
 
 
 def _persist_bug(jira_key, test_name, error_msg, env, priority, epic, suite, username, status):
@@ -1405,6 +2150,8 @@ def _persist_bug(jira_key, test_name, error_msg, env, priority, epic, suite, use
         "status":       status,
         "time":         datetime.now().strftime("%I:%M %p"),
         "raisedAt":     _now(),
+        "comments":     [],
+        "likes":        [],
     })
     _save(BUGS_FILE, bugs)
 
@@ -1424,6 +2171,10 @@ def list_bugs():
 @app.route("/api/registry/<jira_key>", methods=["DELETE"])
 @require_admin
 def delete_bug(jira_key):
+    """Delete a single raised bug. Under the current design bugs are never
+    persisted as tickets, so there's nothing else to clean up — deleting
+    from bugs.json alone is enough; the bug's computed ticket ID (e.g.
+    BUG-1001) simply stops resolving via _find_runnable immediately."""
     bugs   = _load(BUGS_FILE, [])
     before = len(bugs)
     bugs   = [b for b in bugs if b.get("jiraKey") != jira_key]
@@ -1431,6 +2182,49 @@ def delete_bug(jira_key):
         return _err(f"{jira_key} not found.", 404)
     _save(BUGS_FILE, bugs)
     return _ok({"deleted": jira_key})
+
+
+@app.route("/api/registry", methods=["DELETE"])
+@require_admin
+def clear_bugs():
+    """Clear every raised bug — the quickest way to reset the registry back
+    to a clean slate. Tickets are never touched; bugs live only in
+    bugs.json."""
+    bug_count = len(_load(BUGS_FILE, []))
+    _save(BUGS_FILE, [])
+    return _ok({"bugsCleared": bug_count})
+
+
+@app.route("/api/registry/validate", methods=["GET"])
+def validate_registry():
+    """Read-only check for leftover 'isBug' tickets in tickets.json — these
+    can only exist from the OLD design (before bugs were made virtual,
+    resolved on the fly from bugs.json instead of persisted). New code
+    never creates them. Call POST .../repair to remove what this finds."""
+    tickets = _load_tickets()
+    legacy_bug_tickets = [t["id"] for t in tickets if t.get("isBug")]
+    return _ok({
+        "consistent": not legacy_bug_tickets,
+        "legacyBugTicketsFound": legacy_bug_tickets,
+    })
+
+
+@app.route("/api/registry/repair", methods=["POST"])
+@require_admin
+def repair_registry():
+    """Remove any leftover 'isBug' tickets from tickets.json — a one-time
+    migration cleanup for servers that raised bugs before this design
+    change (when a bug ticket was persisted directly into tickets.json,
+    which could then go stale/collide with a later bug of the same
+    computed ID). New bugs are never written here, so this only ever needs
+    to run once per server to clean up old data."""
+    tickets = _load_tickets()
+    before = len(tickets)
+    tickets = [t for t in tickets if not t.get("isBug")]
+    removed = before - len(tickets)
+    if removed:
+        _save_tickets(tickets)
+    return _ok({"legacyBugTicketsRemoved": removed})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1537,4 +2331,4 @@ if __name__ == "__main__":
   ║        tester/test123                 ║
   ╚═══════════════════════════════════════╝
     """)
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=8000, debug=True, threaded=True)
